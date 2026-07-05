@@ -2,8 +2,10 @@
 
 #include <QDialog>
 
+#include "model/ConnectionProfile.h"
 #include "ssh/SshConnection.h"
 
+class QCheckBox;
 class QLineEdit;
 class QSpinBox;
 
@@ -21,12 +23,22 @@ public:
     explicit QuickConnectDialog(QWidget *parent = nullptr);
 
     core::SshConnectionParams params() const;
+    QString password() const;
+
+    // Whether the user asked to save this as a profile, and if so the profile
+    // built from the fields (id is freshly generated; savePassword reflects the
+    // "Save password" checkbox).
+    bool saveSession() const;
+    bool savePassword() const;
+    core::ConnectionProfile toProfile() const;
 
 private:
     QLineEdit *m_host = nullptr;
     QSpinBox *m_port = nullptr;
     QLineEdit *m_username = nullptr;
     QLineEdit *m_password = nullptr;
+    QCheckBox *m_saveSession = nullptr;
+    QCheckBox *m_savePassword = nullptr;
 };
 
 } // namespace termsync::ui

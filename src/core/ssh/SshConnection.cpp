@@ -99,7 +99,21 @@ public slots:
             return;
         }
 
+        // Surface the host key and pause: authentication only continues once
+        // the owner calls approveHostKey() -> proceed().
         emitFingerprint();
+    }
+
+    // Called after the host key has been approved (or rejected) by the owner.
+    void proceed(bool accept)
+    {
+        if (!m_session)
+            return; // already torn down
+        if (!accept) {
+            emit errorOccurred(tr("Host key rejected"));
+            teardown();
+            return;
+        }
 
         if (!authenticate()) {
             emit authenticationFailed(tr("Password authentication failed"));
@@ -365,6 +379,12 @@ void SshConnection::connectToHost(const SshConnectionParams &params)
 {
     QMetaObject::invokeMethod(m_worker, "start", Qt::QueuedConnection,
                               Q_ARG(termsync::core::SshConnectionParams, params));
+}
+
+void SshConnection::approveHostKey(bool accept)
+{
+    QMetaObject::invokeMethod(m_worker, "proceed", Qt::QueuedConnection,
+                              Q_ARG(bool, accept));
 }
 
 void SshConnection::sendData(const QByteArray &data)

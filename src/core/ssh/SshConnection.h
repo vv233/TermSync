@@ -41,7 +41,15 @@ public:
     ~SshConnection() override;
 
     // Begins connecting asynchronously. Results arrive via signals.
+    // After the handshake, hostKeyFingerprint() is emitted and the connection
+    // pauses until approveHostKey() is called — this is where trust-on-first-use
+    // verification happens. Authentication does not proceed before approval, so
+    // the password is never sent to an unverified host.
     void connectToHost(const SshConnectionParams &params);
+
+    // Owner's decision on the host key (in response to hostKeyFingerprint).
+    // accept=false aborts the connection.
+    void approveHostKey(bool accept);
 
     // Sends raw bytes (typically keystrokes) to the remote shell.
     void sendData(const QByteArray &data);

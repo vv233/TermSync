@@ -86,6 +86,14 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
                 m_parser->parse(QByteArray("[host key SHA256: ") + fp.toUtf8() +
                                 "]\r\n");
                 update();
+                if (m_hostKeyVerifier) {
+                    // Respond on the GUI thread via the connection facade.
+                    m_hostKeyVerifier(fp, [this](bool accept) {
+                        m_connection->approveHostKey(accept);
+                    });
+                } else {
+                    m_connection->approveHostKey(true); // auto-trust (tests)
+                }
             });
     connect(m_connection, &core::SshConnection::authenticationFailed, this,
             [this](const QString &r) {

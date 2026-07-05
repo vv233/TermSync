@@ -1,7 +1,9 @@
 # 计划：SecureCRT + SecureFX 合体软件（开源，Qt6/C++）
 
-> 📌 **这是本项目已批准的总体设计与路线图**（TermSync）。当前进度：**M1 脚手架 ✅ · M2 SSH2 连接/原始透传 ✅ · M3 VT100/xterm 渲染 ✅** 均已构建并验证（M3a 解析器+屏幕缓冲 19 项单测全绿；M3b QPainter 渲染连真实 SSH 服务器出图确认）。
+> 📌 **这是本项目已批准的总体设计与路线图**（TermSync）。当前进度：**M1 ✅ · M2 SSH2 连接 ✅ · M3 VT100/xterm 渲染 ✅ · M4 会话管理+凭据存储 ✅** 均已构建并验证（25 项单测全绿；终端渲染连真实 SSH 出图；凭据存储 Windows Credential Manager 往返验证）。
 > 功能落地进度见 [`ui-parity.md`](ui-parity.md)。本文件是长期参照，随重大决策更新。
+>
+> **实现中的两处务实偏离（相对原计划）**：① 配置持久化用 **Qt6::Sql 内置的 QSQLITE 驱动**（而非 vcpkg sqlite3），零额外依赖、已验证；② 凭据存储 M4 先用 **Windows 凭据管理器原生 API**（而非 QtKeychain，避免 vcpkg-Qt 与官方 Qt 冲突），接口 `CredentialStore` 已抽象，M9 再补 QtKeychain/libsecret 后端跨平台。
 
 ## Context（背景 / 为什么做）
 

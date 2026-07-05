@@ -4,6 +4,7 @@
 #include <QPoint>
 #include <QVector>
 #include <QWidget>
+#include <functional>
 #include <memory>
 
 #include "screen/ScreenBuffer.h"
@@ -24,6 +25,18 @@ public:
     explicit TerminalWidget(const core::SshConnectionParams &params,
                             QWidget *parent = nullptr);
     ~TerminalWidget() override;
+
+    // Host-key verifier: given the server's SHA-256 fingerprint, decide whether
+    // to trust it and invoke the supplied callback with the result. If unset,
+    // the widget auto-approves (used by standalone tests). MainWindow installs
+    // one backed by the known-hosts store + a trust dialog.
+    using HostKeyVerifier =
+        std::function<void(const QString &fingerprint,
+                           std::function<void(bool accept)> respond)>;
+    void setHostKeyVerifier(HostKeyVerifier verifier)
+    {
+        m_hostKeyVerifier = std::move(verifier);
+    }
 
 signals:
     void statusMessage(const QString &message);
@@ -77,6 +90,7 @@ private:
 
     bool m_appCursorKeys = false;
     bool m_connected = false;
+    HostKeyVerifier m_hostKeyVerifier;
 
     // Selection, in document coordinates (row, col). Inclusive-exclusive by
     // normal ordering; empty when anchor == caret and not selecting.

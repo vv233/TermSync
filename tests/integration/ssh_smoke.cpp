@@ -43,8 +43,9 @@ int main(int argc, char *argv[])
     termsync::core::SshConnection conn;
 
     QObject::connect(&conn, &termsync::core::SshConnection::hostKeyFingerprint,
-                     [](const QString &fp) {
+                     [&conn](const QString &fp) {
                          std::fprintf(stderr, "[hostkey] %s\n", fp.toUtf8().constData());
+                         conn.approveHostKey(true); // trust-on-first-use (test)
                      });
     QObject::connect(&conn, &termsync::core::SshConnection::connected, [] {
         std::fprintf(stderr, "[connected] shell open\n");

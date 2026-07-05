@@ -1,16 +1,20 @@
 # Unit tests. GoogleTest is provided by vcpkg (the "tests" feature).
 find_package(GTest CONFIG REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Core)
 
 add_executable(termsync_unit_tests
+    unit/test_main.cpp
     unit/smoke_test.cpp
     unit/vt_parser_test.cpp
+    unit/profile_store_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests
     PRIVATE
         GTest::gtest
-        GTest::gtest_main
         termsync_terminal
+        termsync_core
+        Qt6::Core
 )
 
 include(GoogleTest)

@@ -1,19 +1,30 @@
 #include "mainwindow/MainWindow.h"
 
 #include <QAction>
+#include <QDir>
 #include <QDockWidget>
+#include <QHash>
+#include <QInputDialog>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include "session_dialogs/QuickConnectDialog.h"
 #include "terminal_view/TerminalWidget.h"
+
+namespace {
+// Role used to stash a profile id on a session-tree leaf item.
+constexpr int kProfileIdRole = Qt::UserRole + 1;
+} // namespace
 
 namespace termsync::ui {
 
@@ -29,6 +40,8 @@ MainWindow::MainWindow(QWidget *parent)
     createSessionManagerDock();
     createStatusBar();
 
+    initStores();
+    loadProfilesIntoTree();
     addWelcomeTab();
 }
 
@@ -154,7 +167,13 @@ void MainWindow::createSessionManagerDock()
     m_sessionTree = new QTreeWidget(m_sessionManagerDock);
     m_sessionTree->setHeaderLabel(tr("Sessions"));
     m_sessionTree->setColumnCount(1);
-    // Placeholder tree — populated from the ProfileStore starting in M4.
+    m_sessionTree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_sessionTree, &QTreeWidget::itemActivated, this,
+            &MainWindow::onSessionActivated);
+    connect(m_sessionTree, &QTreeWidget::itemDoubleClicked, this,
+            &MainWindow::onSessionActivated);
+    connect(m_sessionTree, &QWidget::customContextMenuRequested, this,
+            &MainWindow::showSessionContextMenu);
     m_sessionManagerDock->setWidget(m_sessionTree);
 
     addDockWidget(Qt::LeftDockWidgetArea, m_sessionManagerDock);
@@ -185,22 +204,169 @@ void MainWindow::openQuickConnect()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    const core::SshConnectionParams params = dialog.params();
-    if (params.host.isEmpty()) {
+    core::ConnectionProfile profile = dialog.toProfile();
+    if (profile.host.isEmpty()) {
         statusBar()->showMessage(tr("Quick Connect: hostname is required"), 4000);
         return;
     }
+    const QString password = dialog.password();
+
+    // Persist the profile / password if requested.
+    if (dialog.saveSession() && m_profileStore) {
+        if (m_profileStore->upsert(profile)) {
+            if (profile.savePassword && m_credentialStore)
+                m_credentialStore->store(profile.id, password);
+            loadProfilesIntoTree();
+        }
+    }
+
+    startSession(profile, password);
+}
+
+void MainWindow::initStores()
+{
+    m_credentialStore = core::CredentialStore::createDefault();
+
+    const QString dir =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dir);
+    const QString dbPath = dir + QStringLiteral("/profiles.db");
+
+    m_profileStore = std::make_unique<core::ProfileStore>();
+    if (!m_profileStore->open(dbPath)) {
+        statusBar()->showMessage(
+            tr("Could not open session store: %1").arg(m_profileStore->lastError()),
+            6000);
+        m_profileStore.reset();
+    }
+}
+
+void MainWindow::loadProfilesIntoTree()
+{
+    if (!m_sessionTree)
+        return;
+    m_sessionTree->clear();
+    if (!m_profileStore)
+        return;
+
+    m_profiles = m_profileStore->allProfiles();
+
+    // Build folder nodes on demand, then attach profile leaves.
+    QHash<QString, QTreeWidgetItem *> folders;
+    auto folderItem = [&](const QString &path) -> QTreeWidgetItem * {
+        if (path.isEmpty())
+            return nullptr;
+        if (folders.contains(path))
+            return folders.value(path);
+        auto *item = new QTreeWidgetItem(QStringList{path.section('/', -1)});
+        m_sessionTree->addTopLevelItem(item);
+        folders.insert(path, item);
+        return item;
+    };
+
+    for (const core::ConnectionProfile &p : m_profiles) {
+        auto *leaf = new QTreeWidgetItem(QStringList{p.name});
+        leaf->setData(0, kProfileIdRole, p.id);
+        leaf->setToolTip(0, QStringLiteral("%1@%2:%3")
+                                .arg(p.username, p.host)
+                                .arg(p.port));
+        if (QTreeWidgetItem *parent = folderItem(p.folderPath))
+            parent->addChild(leaf);
+        else
+            m_sessionTree->addTopLevelItem(leaf);
+    }
+    m_sessionTree->expandAll();
+}
+
+void MainWindow::onSessionActivated(QTreeWidgetItem *item, int)
+{
+    if (!item)
+        return;
+    const QString id = item->data(0, kProfileIdRole).toString();
+    if (id.isEmpty())
+        return; // a folder node
+    for (const core::ConnectionProfile &p : m_profiles) {
+        if (p.id == id) {
+            connectProfile(p);
+            return;
+        }
+    }
+}
+
+void MainWindow::showSessionContextMenu(const QPoint &pos)
+{
+    QTreeWidgetItem *item = m_sessionTree->itemAt(pos);
+    if (!item)
+        return;
+    const QString id = item->data(0, kProfileIdRole).toString();
+    if (id.isEmpty())
+        return;
+
+    QMenu menu(this);
+    QAction *connectAct = menu.addAction(tr("Connect"));
+    QAction *deleteAct = menu.addAction(tr("Delete"));
+    QAction *chosen = menu.exec(m_sessionTree->viewport()->mapToGlobal(pos));
+    if (!chosen)
+        return;
+
+    if (chosen == connectAct) {
+        onSessionActivated(item, 0);
+    } else if (chosen == deleteAct) {
+        if (m_profileStore) {
+            m_profileStore->remove(id);
+            if (m_credentialStore)
+                m_credentialStore->remove(id);
+            loadProfilesIntoTree();
+        }
+    }
+}
+
+void MainWindow::connectProfile(const core::ConnectionProfile &profile)
+{
+    QString password;
+    if (profile.savePassword && m_credentialStore)
+        password = m_credentialStore->retrieve(profile.id);
+
+    if (password.isEmpty()) {
+        bool ok = false;
+        password = QInputDialog::getText(
+            this, tr("Password"),
+            tr("Password for %1@%2:").arg(profile.username, profile.host),
+            QLineEdit::Password, QString(), &ok);
+        if (!ok)
+            return;
+    }
+    startSession(profile, password);
+}
+
+void MainWindow::startSession(const core::ConnectionProfile &profile,
+                              const QString &password)
+{
+    core::SshConnectionParams params;
+    params.host = profile.host;
+    params.port = profile.port;
+    params.username = profile.username;
+    params.password = password;
+    params.cols = profile.cols;
+    params.rows = profile.rows;
 
     auto *view = new TerminalWidget(params, this);
+
+    // Trust-on-first-use: verify the host key against the known-hosts store.
+    const QString host = profile.host;
+    const quint16 port = profile.port;
+    view->setHostKeyVerifier(
+        [this, host, port](const QString &fp,
+                           std::function<void(bool)> respond) {
+            respond(verifyHostKey(host, port, fp));
+        });
+
     connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
 
-    const QString baseTitle = params.username.isEmpty()
-                                  ? params.host
-                                  : params.username + '@' + params.host;
+    const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, baseTitle);
     m_sessionTabs->setCurrentIndex(index);
-    // Reflect the remote-reported window title on the tab.
     connect(view, &TerminalWidget::titleChanged, this,
             [this, view](const QString &t) {
                 const int i = m_sessionTabs->indexOf(view);
@@ -208,7 +374,39 @@ void MainWindow::openQuickConnect()
                     m_sessionTabs->setTabText(i, t);
             });
     view->setFocus();
-    statusBar()->showMessage(tr("Connecting to %1...").arg(params.host), 4000);
+    statusBar()->showMessage(tr("Connecting to %1...").arg(profile.host), 4000);
+}
+
+bool MainWindow::verifyHostKey(const QString &host, quint16 port,
+                               const QString &fingerprint)
+{
+    if (!m_profileStore)
+        return true; // no store: accept (non-persistent)
+
+    const QString known = m_profileStore->knownFingerprint(host, port);
+    if (known.isEmpty()) {
+        // First contact: trust and remember.
+        m_profileStore->setKnownFingerprint(host, port, fingerprint);
+        return true;
+    }
+    if (known == fingerprint)
+        return true;
+
+    // Mismatch — possible MITM. Ask the user explicitly.
+    const auto answer = QMessageBox::warning(
+        this, tr("Host Key Changed"),
+        tr("The host key for %1:%2 has changed!\n\n"
+           "Stored:   %3\nReceived: %4\n\n"
+           "This could indicate a man-in-the-middle attack. Connect anyway?")
+            .arg(host)
+            .arg(port)
+            .arg(known, fingerprint),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer == QMessageBox::Yes) {
+        m_profileStore->setKnownFingerprint(host, port, fingerprint);
+        return true;
+    }
+    return false;
 }
 
 void MainWindow::addWelcomeTab()

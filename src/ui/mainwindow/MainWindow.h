@@ -1,10 +1,17 @@
 #pragma once
 
 #include <QMainWindow>
+#include <memory>
+
+#include "credential/CredentialStore.h"
+#include "model/ConnectionProfile.h"
+#include "store/ProfileStore.h"
 
 class QTabWidget;
 class QTreeWidget;
+class QTreeWidgetItem;
 class QDockWidget;
+class QPoint;
 
 namespace termsync::ui {
 
@@ -36,9 +43,30 @@ private:
     // in a new tab.
     void openQuickConnect();
 
+    // Session store / tree.
+    void initStores();
+    void loadProfilesIntoTree();
+    void onSessionActivated(QTreeWidgetItem *item, int column);
+    void showSessionContextMenu(const QPoint &pos);
+
+    // Connects a saved profile (retrieving/prompting for the password), and
+    // the low-level "open a terminal tab for these params" helper.
+    void connectProfile(const core::ConnectionProfile &profile);
+    void startSession(const core::ConnectionProfile &profile,
+                      const QString &password);
+
+    // Synchronous trust-on-first-use check against the known-hosts store.
+    // Prompts on unknown/changed keys; persists accepted keys.
+    bool verifyHostKey(const QString &host, quint16 port,
+                       const QString &fingerprint);
+
     QTabWidget *m_sessionTabs = nullptr;
     QDockWidget *m_sessionManagerDock = nullptr;
     QTreeWidget *m_sessionTree = nullptr;
+
+    std::unique_ptr<core::ProfileStore> m_profileStore;
+    std::unique_ptr<core::CredentialStore> m_credentialStore;
+    QVector<core::ConnectionProfile> m_profiles;
 };
 
 } // namespace termsync::ui
