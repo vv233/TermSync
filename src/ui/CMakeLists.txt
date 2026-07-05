@@ -13,6 +13,8 @@ add_library(termsync_ui STATIC
     transfer_view/SftpBrowserWidget.cpp
     transfer_view/DualPaneBrowser.h
     transfer_view/DualPaneBrowser.cpp
+    script/TerminalScriptContext.h
+    script/TerminalScriptContext.cpp
 )
 
 target_include_directories(termsync_ui
@@ -26,4 +28,5 @@ target_link_libraries(termsync_ui
         termsync_core
         termsync_terminal
         termsync_transfer
+        termsync_script
 )

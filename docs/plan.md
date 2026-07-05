@@ -1,6 +1,6 @@
 # 计划：SecureCRT + SecureFX 合体软件（开源，Qt6/C++）
 
-> 📌 **这是本项目已批准的总体设计与路线图**（TermSync）。**MVP 主线 M1–M10 全部完成并验证**（38 项单测全绿；终端与双栏浏览器连真实 SSH/SFTP/FTP 出图；凭据 Windows Credential Manager 往返；windeployqt 自包含打包，Qt 不在 PATH 也能运行，CPack 产出可分发 ZIP）。M11–M20（端口转发、SCP/ZMODEM、Telnet/Serial/rlogin、脚本引擎、TN3270 等）为后续完整功能里程碑。
+> 📌 **这是本项目已批准的总体设计与路线图**（TermSync）。**MVP 主线 M1–M10 全部完成并验证**（38 项单测全绿；终端与双栏浏览器连真实 SSH/SFTP/FTP 出图；凭据 Windows Credential Manager 往返；windeployqt 自包含打包，Qt 不在 PATH 也能运行，CPack 产出可分发 ZIP）。**M11–M15 也已完成**（端口转发+SOCKS、SCP+X/Y/ZMODEM 帧、Telnet、Serial、JS 脚本引擎），61 项单测全绿。剩余 M16（TN3270/5250）、M17–M20（防火墙/代理、传输增强、调度/CLI、终端强力功能+应用级）为后续里程碑。
 > 功能落地进度见 [`ui-parity.md`](ui-parity.md)。本文件是长期参照，随重大决策更新。
 >
 > **实现中的两处务实偏离（相对原计划）**：① 配置持久化用 **Qt6::Sql 内置的 QSQLITE 驱动**（而非 vcpkg sqlite3），零额外依赖、已验证；② 凭据存储 M4 先用 **Windows 凭据管理器原生 API**（而非 QtKeychain，避免 vcpkg-Qt 与官方 Qt 冲突），接口 `CredentialStore` 已抽象，M9 再补 QtKeychain/libsecret 后端跨平台。

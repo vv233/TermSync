@@ -10,6 +10,7 @@ add_executable(termsync_unit_tests
     unit/sync_diff_test.cpp
     unit/socks5_test.cpp
     unit/xymodem_test.cpp
+    unit/script_engine_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests
@@ -18,6 +19,7 @@ target_link_libraries(termsync_unit_tests
         termsync_terminal
         termsync_core
         termsync_transfer
+        termsync_script
         Qt6::Core
         Qt6::Sql
         Qt6::Network

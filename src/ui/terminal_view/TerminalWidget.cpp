@@ -211,6 +211,26 @@ QColor TerminalWidget::toQColor(const Color &c, bool bold) const
     return m_defaultFg;
 }
 
+void TerminalWidget::sendText(const QByteArray &bytes)
+{
+    if (m_connection)
+        m_connection->sendData(bytes);
+}
+
+QString TerminalWidget::screenPlainText() const
+{
+    QString out;
+    for (int r = 0; r < m_screen->rows(); ++r) {
+        const terminal::Line &line = m_screen->line(r);
+        QString rowText;
+        for (const terminal::Cell &c : line)
+            rowText += QChar(static_cast<char16_t>(c.ch));
+        out += rowText.trimmed().isEmpty() ? QString() : rowText;
+        out += '\n';
+    }
+    return out;
+}
+
 void TerminalWidget::onDataReceived(const QByteArray &data)
 {
     m_parser->parse(data);

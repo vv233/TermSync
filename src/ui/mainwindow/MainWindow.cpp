@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
+#include <QFileDialog>
 #include <QHash>
 #include <QInputDialog>
 #include <QLabel>
@@ -19,6 +20,8 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "ScriptEngine.h"
+#include "script/TerminalScriptContext.h"
 #include "serial/SerialConnection.h"
 #include "session_dialogs/QuickConnectDialog.h"
 #include "telnet/TelnetConnection.h"
@@ -119,7 +122,8 @@ void MainWindow::createMenus()
 
     // --- Script ---
     QMenu *scriptMenu = menuBar()->addMenu(tr("&Script"));
-    placeholder(scriptMenu, tr("Run..."));
+    QAction *runScriptAct = scriptMenu->addAction(tr("Run..."));
+    connect(runScriptAct, &QAction::triggered, this, &MainWindow::runScript);
     placeholder(scriptMenu, tr("Start Recording Script"));
     placeholder(scriptMenu, tr("Stop Recording Script"));
 
@@ -521,6 +525,34 @@ void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
 
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (Telnet) to %1...").arg(profile.host), 4000);
+}
+
+void MainWindow::runScript()
+{
+    auto *terminal = qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+    if (!terminal) {
+        statusBar()->showMessage(tr("Run Script: open a terminal tab first"), 4000);
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Run Script"), QString(), tr("Scripts (*.js);;All files (*)"));
+    if (path.isEmpty())
+        return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        statusBar()->showMessage(tr("Could not open script: %1").arg(path), 4000);
+        return;
+    }
+    const QString source = QString::fromUtf8(file.readAll());
+
+    TerminalScriptContext context(terminal);
+    script::ScriptEngine engine(&context);
+    const auto result = engine.run(source);
+    if (result.ok)
+        statusBar()->showMessage(tr("Script finished"), 4000);
+    else
+        statusBar()->showMessage(tr("Script error: %1").arg(result.error), 8000);
 }
 
 void MainWindow::startSerialSession(const core::ConnectionProfile &profile)

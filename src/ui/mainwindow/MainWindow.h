@@ -61,6 +61,9 @@ private:
     void startTelnetSession(const core::ConnectionProfile &profile);
     void startSerialSession(const core::ConnectionProfile &profile);
 
+    // Runs a JavaScript automation script against the active terminal tab.
+    void runScript();
+
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.
     bool verifyHostKey(const QString &host, quint16 port,

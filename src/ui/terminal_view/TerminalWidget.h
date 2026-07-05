@@ -44,6 +44,11 @@ public:
         m_hostKeyVerifier = std::move(verifier);
     }
 
+    // Scripting hooks (M15): send bytes to the session and read the current
+    // screen contents as plain text.
+    void sendText(const QByteArray &bytes);
+    QString screenPlainText() const;
+
 signals:
     void statusMessage(const QString &message);
     void titleChanged(const QString &title);
