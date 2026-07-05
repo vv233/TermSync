@@ -863,6 +863,9 @@ bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &loca
         return false;
     }
 
+    if (m_asciiMode) // text mode changes byte counts; use the dedicated path
+        return asciiDownload(remotePath, localPath, progress, cancel);
+
     quint64 total = 0;
     statSize(remotePath, &total); // best-effort, for progress reporting
 
@@ -966,6 +969,9 @@ bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remoteP
         return false;
     }
 
+    if (m_asciiMode) // text mode changes byte counts; use the dedicated path
+        return asciiUpload(localPath, remotePath, progress, cancel);
+
     QFile local(localPath);
     if (!local.open(QIODevice::ReadOnly)) {
         setError(local.errorString());
@@ -983,29 +989,39 @@ bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remoteP
         if (startOffset == total && total > 0) {
             if (progress)
                 progress(total, total);
+            applyLocalPermissions(localPath, remotePath);
             return true; // already complete
         }
     }
 
-    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty())
-        return uploadFileParallel(localPath, remotePath, total, startOffset, progress, cancel);
-
-    // Sequential path: relentless retry, resuming from the authoritative remote
-    // size (the server's committed count) so an un-acked tail is re-sent.
-    const int maxAttempts = relentlessMaxAttempts(m_relentless);
-    for (int attempt = 1;; ++attempt) {
-        if (uploadFileSequential(localPath, remotePath, total, startOffset, progress, cancel))
-            return true;
-        if (isCancelled(cancel) || !m_relentless || attempt >= maxAttempts ||
-            !looksLikeConnectionDrop(lastError()))
-            return false;
-        reconnectBackoff(attempt, cancel, nullptr);
-        if (isCancelled(cancel))
-            return false;
-        reconnectForRetry();
-        quint64 remoteSize = 0;
-        startOffset = (statSize(remotePath, &remoteSize)) ? qMin(remoteSize, total) : 0;
+    bool ok;
+    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty()) {
+        ok = uploadFileParallel(localPath, remotePath, total, startOffset, progress, cancel);
+    } else {
+        // Sequential path: relentless retry, resuming from the authoritative remote
+        // size (the server's committed count) so an un-acked tail is re-sent.
+        const int maxAttempts = relentlessMaxAttempts(m_relentless);
+        ok = false;
+        for (int attempt = 1;; ++attempt) {
+            if (uploadFileSequential(localPath, remotePath, total, startOffset, progress, cancel)) {
+                ok = true;
+                break;
+            }
+            if (isCancelled(cancel) || !m_relentless || attempt >= maxAttempts ||
+                !looksLikeConnectionDrop(lastError()))
+                break;
+            reconnectBackoff(attempt, cancel, nullptr);
+            if (isCancelled(cancel))
+                break;
+            reconnectForRetry();
+            quint64 remoteSize = 0;
+            startOffset = (statSize(remotePath, &remoteSize)) ? qMin(remoteSize, total) : 0;
+        }
     }
+
+    if (ok)
+        applyLocalPermissions(localPath, remotePath); // no-op unless preserve is on
+    return ok;
 }
 
 bool SftpFileEngine::uploadFileSequential(const QString &localPath, const QString &remotePath,
@@ -1481,6 +1497,180 @@ bool SftpFileEngine::statSize(const QString &remotePath, quint64 *size)
         return true;
     }
     return false;
+}
+
+bool SftpFileEngine::readlink(const QString &remotePath, QString *target)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp || !target) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray path = remotePath.toUtf8();
+    char buffer[1024];
+    const int rc = libssh2_sftp_readlink(sftp, path.constData(), buffer, sizeof(buffer));
+    if (rc <= 0) {
+        setError(QStringLiteral("Could not read symlink: %1").arg(remotePath));
+        return false;
+    }
+    *target = QString::fromUtf8(buffer, rc);
+    return true;
+}
+
+bool SftpFileEngine::realpath(const QString &remotePath, QString *resolved)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp || !resolved) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray path = remotePath.toUtf8();
+    char buffer[1024];
+    const int rc = libssh2_sftp_realpath(sftp, path.constData(), buffer, sizeof(buffer));
+    if (rc <= 0) {
+        setError(QStringLiteral("Could not resolve path: %1").arg(remotePath));
+        return false;
+    }
+    *resolved = QString::fromUtf8(buffer, rc);
+    return true;
+}
+
+bool SftpFileEngine::createSymlink(const QString &target, const QString &linkPath)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    QByteArray orig = target.toUtf8();
+    QByteArray link = linkPath.toUtf8();
+    if (libssh2_sftp_symlink(sftp, orig.constData(), link.data()) != 0) {
+        setError(QStringLiteral("Could not create symlink: %1 -> %2").arg(linkPath, target));
+        return false;
+    }
+    return true;
+}
+
+void SftpFileEngine::applyLocalPermissions(const QString &localPath, const QString &remotePath)
+{
+    if (!m_preservePerms)
+        return;
+    const QFileDevice::Permissions p = QFile::permissions(localPath);
+    quint32 mode = 0;
+    if (p & QFileDevice::ReadOwner)  mode |= 0400;
+    if (p & QFileDevice::WriteOwner) mode |= 0200;
+    if (p & QFileDevice::ExeOwner)   mode |= 0100;
+    if (p & QFileDevice::ReadGroup)  mode |= 0040;
+    if (p & QFileDevice::WriteGroup) mode |= 0020;
+    if (p & QFileDevice::ExeGroup)   mode |= 0010;
+    if (p & QFileDevice::ReadOther)  mode |= 0004;
+    if (p & QFileDevice::WriteOther) mode |= 0002;
+    if (p & QFileDevice::ExeOther)   mode |= 0001;
+    if (mode)
+        setPermissions(remotePath, mode); // best-effort; failure is non-fatal
+}
+
+// Text-mode transfers: translate line endings. Small files (config, scripts),
+// so a simple whole-buffer sequential path is fine — no parallel/resume.
+bool SftpFileEngine::asciiUpload(const QString &localPath, const QString &remotePath,
+                                 ProgressFn progress, const std::atomic<bool> *cancel)
+{
+    QFile local(localPath);
+    if (!local.open(QIODevice::ReadOnly)) {
+        setError(local.errorString());
+        return false;
+    }
+    QByteArray data = local.readAll();
+    local.close();
+    // Normalise to LF, then emit CRLF (canonical network text form).
+    data.replace("\r\n", "\n");
+    data.replace('\n', "\r\n");
+
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    const QByteArray remote = remotePath.toUtf8();
+    QString ioError;
+    LIBSSH2_SFTP_HANDLE *remoteFile = openSftpFile(
+        session, storedSocket(m_socket), sftp, remote,
+        LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
+        LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
+            LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH,
+        &ioError, QStringLiteral("open for write"));
+    if (!remoteFile) {
+        setError(QStringLiteral("Could not open remote file for writing: %1 (%2)")
+                     .arg(remotePath, ioError));
+        return false;
+    }
+    const char *ptr = data.constData();
+    qsizetype remaining = data.size();
+    while (remaining > 0) {
+        if (isCancelled(cancel)) {
+            closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
+        const ssize_t w = writeSftpFile(session, storedSocket(m_socket), remoteFile,
+                                        ptr, remaining, &ioError);
+        if (w < 0) {
+            closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+            setError(QStringLiteral("Failed while uploading: %1 (%2)").arg(remotePath, ioError));
+            return false;
+        }
+        ptr += w;
+        remaining -= w;
+        if (progress)
+            progress(static_cast<quint64>(data.size() - remaining), static_cast<quint64>(data.size()));
+    }
+    if (!closeSftpFile(session, storedSocket(m_socket), remoteFile, &ioError)) {
+        setError(ioError);
+        return false;
+    }
+    applyLocalPermissions(localPath, remotePath);
+    return true;
+}
+
+bool SftpFileEngine::asciiDownload(const QString &remotePath, const QString &localPath,
+                                   ProgressFn progress, const std::atomic<bool> *cancel)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    const QByteArray remote = remotePath.toUtf8();
+    QString ioError;
+    LIBSSH2_SFTP_HANDLE *remoteFile = openSftpFile(
+        session, storedSocket(m_socket), sftp, remote, LIBSSH2_FXF_READ, 0, &ioError,
+        QStringLiteral("open for read"));
+    if (!remoteFile) {
+        setError(QStringLiteral("Could not open remote file: %1 (%2)").arg(remotePath, ioError));
+        return false;
+    }
+    QByteArray data;
+    QByteArray buffer(downloadBufferSize(), Qt::Uninitialized);
+    for (;;) {
+        if (isCancelled(cancel)) {
+            closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
+        const ssize_t rc = readSftpFile(session, storedSocket(m_socket), remoteFile,
+                                        buffer.data(), buffer.size(), &ioError);
+        if (rc > 0) {
+            data.append(buffer.constData(), rc);
+            if (progress)
+                progress(static_cast<quint64>(data.size()), 0);
+            continue;
+        }
+        if (rc == 0)
+            break;
+        closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+        setError(QStringLiteral("Failed while downloading: %1 (%2)").arg(remotePath, ioError));
+        return false;
+    }
+    closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+    // Canonicalise to the local platform's line ending.
+    data.replace("\r\n", "\n");
+#ifdef _WIN32
+    data.replace('\n', "\r\n");
+#endif
+    QFile local(localPath);
+    if (!local.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
+        local.write(data) != data.size()) {
+        setError(local.errorString());
+        return false;
+    }
+    if (progress)
+        progress(static_cast<quint64>(data.size()), static_cast<quint64>(data.size()));
+    return true;
 }
 
 bool SftpFileEngine::openSocket(const QString &hostName, quint16 portNumber)

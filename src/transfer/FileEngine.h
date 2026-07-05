@@ -77,6 +77,20 @@ public:
     // When enabled, a dropped connection mid-transfer is retried (reconnect +
     // continue) rather than failing. Backends without reconnect ignore it.
     virtual void setRelentless(bool) {}
+    // After a successful upload, set the remote file's mode to match the local
+    // file (unix perms). No-op on backends that can't chmod.
+    virtual void setPreservePermissions(bool) {}
+    // Text mode: translate line endings during transfer (upload local->CRLF,
+    // download CRLF->LF). Forces a byte-inexact sequential path.
+    virtual void setAsciiMode(bool) {}
+
+    // Move within the same backend. Default is a server-side rename; a backend
+    // may override with something cheaper. (Cross-host moves are a caller-level
+    // download+delete, not this.)
+    bool moveFile(const QString &fromPath, const QString &toPath)
+    {
+        return rename(fromPath, toPath);
+    }
 
     // Recursively enumerates the tree under `root` into a sync::Listing keyed by
     // forward-slash paths relative to `root` (drives the sync engine). Uses the

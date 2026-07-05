@@ -48,6 +48,14 @@ public:
     // attempts with backoff) and continue instead of failing. Parallel lanes
     // resume per-range; the sequential path resumes from the contiguous prefix.
     void setRelentless(bool relentless) override { m_relentless = relentless; }
+    void setPreservePermissions(bool preserve) override { m_preservePerms = preserve; }
+    void setAsciiMode(bool ascii) override { m_asciiMode = ascii; }
+
+    // Symlink helpers (SFTP-specific). readlink returns the raw link target;
+    // realpath canonicalises a path on the server; createSymlink makes one.
+    bool readlink(const QString &remotePath, QString *target);
+    bool realpath(const QString &remotePath, QString *resolved);
+    bool createSymlink(const QString &target, const QString &linkPath);
     // listRecursive is inherited from FileEngine (generic walk via listDirectory).
 
     // SCP transfers over the same authenticated session (M12). SCP is a
@@ -108,6 +116,14 @@ private:
     RateLimiter *m_limiter = nullptr;   // non-owning; shared by parallel siblings for one transfer
     const std::atomic<bool> *m_pauseFlag = nullptr; // non-owning; parks the transfer while true
     bool m_relentless = false;          // reconnect + continue on a dropped connection
+    bool m_preservePerms = false;       // chmod remote to match local after upload
+    bool m_asciiMode = false;           // translate line endings (text transfers)
+
+    bool asciiUpload(const QString &localPath, const QString &remotePath,
+                     ProgressFn progress, const std::atomic<bool> *cancel);
+    bool asciiDownload(const QString &remotePath, const QString &localPath,
+                       ProgressFn progress, const std::atomic<bool> *cancel);
+    void applyLocalPermissions(const QString &localPath, const QString &remotePath);
 };
 
 } // namespace termsync::transfer
