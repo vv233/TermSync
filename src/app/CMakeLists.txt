@@ -25,6 +25,24 @@ install(FILES
     "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
     DESTINATION .)
 
+# Bundle the non-Qt runtime DLLs (libssh2, libcurl, OpenSSL, zlib — provided by
+# vcpkg). windeployqt below handles only the Qt DLLs/plugins, so these must be
+# copied explicitly or the packaged app fails with "libssh2.dll not found".
+if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+    install(CODE "
+        set(_vcpkg_bin \"${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin\")
+        if(\"\${CMAKE_INSTALL_CONFIG_NAME}\" MATCHES \"[Dd]ebug\")
+            set(_vcpkg_bin \"${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/bin\")
+        endif()
+        file(GLOB _runtime_dlls \"\${_vcpkg_bin}/*.dll\")
+        if(_runtime_dlls)
+            file(INSTALL \${_runtime_dlls} DESTINATION \"\${CMAKE_INSTALL_PREFIX}\")
+        else()
+            message(WARNING \"No vcpkg runtime DLLs found in \${_vcpkg_bin}\")
+        endif()
+    ")
+endif()
+
 # Bundle the Qt runtime (DLLs + plugins) beside the installed executable so the
 # app is self-contained. On Windows this uses windeployqt.
 if(WIN32)
