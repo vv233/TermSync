@@ -13,7 +13,7 @@
 #include <QWidget>
 
 #include "session_dialogs/QuickConnectDialog.h"
-#include "terminal_view/RawTerminalView.h"
+#include "terminal_view/TerminalWidget.h"
 
 namespace termsync::ui {
 
@@ -191,15 +191,22 @@ void MainWindow::openQuickConnect()
         return;
     }
 
-    auto *view = new RawTerminalView(params, this);
-    connect(view, &RawTerminalView::statusMessage, this,
+    auto *view = new TerminalWidget(params, this);
+    connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
 
-    const QString title = params.username.isEmpty()
-                              ? params.host
-                              : params.username + '@' + params.host;
-    const int index = m_sessionTabs->addTab(view, title);
+    const QString baseTitle = params.username.isEmpty()
+                                  ? params.host
+                                  : params.username + '@' + params.host;
+    const int index = m_sessionTabs->addTab(view, baseTitle);
     m_sessionTabs->setCurrentIndex(index);
+    // Reflect the remote-reported window title on the tab.
+    connect(view, &TerminalWidget::titleChanged, this,
+            [this, view](const QString &t) {
+                const int i = m_sessionTabs->indexOf(view);
+                if (i >= 0 && !t.isEmpty())
+                    m_sessionTabs->setTabText(i, t);
+            });
     view->setFocus();
     statusBar()->showMessage(tr("Connecting to %1...").arg(params.host), 4000);
 }

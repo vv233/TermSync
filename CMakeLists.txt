@@ -35,6 +35,7 @@ qt_standard_project_setup()
 # Only the pieces that exist in the current milestone are wired up here;
 # later milestones add_subdirectory their own modules.
 add_subdirectory(src/core)
+add_subdirectory(src/terminal)
 add_subdirectory(src/ui)
 add_subdirectory(src/app)
 

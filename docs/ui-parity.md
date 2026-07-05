@@ -17,7 +17,7 @@ Legend: `→ Mn` = target milestone.
 
 - [x] **M1** Scaffold: CMake + Qt6 empty window + menu shell  ✅ *built & verified*
 - [x] **M2** SSH2 connect + raw shell passthrough  ✅ *verified against a live SSH server (handshake + password auth + shell + raw read)*
-- [ ] **M3** VT100/xterm terminal rendering
+- [x] **M3** VT100/xterm terminal rendering  ✅ *M3a parser+buffer (19 unit tests) & M3b QPainter renderer verified against live SSH output; full-screen app (vim/htop/tmux) check pending a shell-capable test server*
 - [ ] **M4** Session profile manager + tabbed UI + keychain
 - [ ] **M5** SFTP listing + basic transfer
 - [ ] **M6** Dual-pane browser + transfer queue

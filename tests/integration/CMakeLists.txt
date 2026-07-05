@@ -10,3 +10,14 @@ target_link_libraries(ssh_smoke
         termsync_core
         Qt6::Core
 )
+
+# GUI render smoke test (needs Qt Widgets + a GUI platform).
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
+add_executable(terminal_render_smoke
+    terminal_render_smoke.cpp
+)
+target_link_libraries(terminal_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
