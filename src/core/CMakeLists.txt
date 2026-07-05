@@ -26,6 +26,10 @@ add_library(termsync_core STATIC
     tn3270/Tn3270Stream.cpp
     tn3270/Tn3270Connection.h
     tn3270/Tn3270Connection.cpp
+    tn3270/Tn5250Stream.h
+    tn3270/Tn5250Stream.cpp
+    tn3270/Tn5250Connection.h
+    tn3270/Tn5250Connection.cpp
 )
 
 target_include_directories(termsync_core

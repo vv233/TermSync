@@ -385,6 +385,20 @@ void TerminalWidget::keyPressEvent(QKeyEvent *event)
     case Qt::Key_PageDown: bytes = "\x1b[6~"; break;
     case Qt::Key_Delete:   bytes = "\x1b[3~"; break;
     case Qt::Key_Insert:   bytes = "\x1b[2~"; break;
+    case Qt::Key_Backtab:  bytes = "\x1b[Z"; break;
+    // Function keys (xterm sequences): F1-F4 use SS3, F5-F12 use CSI ~.
+    case Qt::Key_F1:  bytes = "\x1bOP"; break;
+    case Qt::Key_F2:  bytes = "\x1bOQ"; break;
+    case Qt::Key_F3:  bytes = "\x1bOR"; break;
+    case Qt::Key_F4:  bytes = "\x1bOS"; break;
+    case Qt::Key_F5:  bytes = "\x1b[15~"; break;
+    case Qt::Key_F6:  bytes = "\x1b[17~"; break;
+    case Qt::Key_F7:  bytes = "\x1b[18~"; break;
+    case Qt::Key_F8:  bytes = "\x1b[19~"; break;
+    case Qt::Key_F9:  bytes = "\x1b[20~"; break;
+    case Qt::Key_F10: bytes = "\x1b[21~"; break;
+    case Qt::Key_F11: bytes = "\x1b[23~"; break;
+    case Qt::Key_F12: bytes = "\x1b[24~"; break;
     default:
         if (event->modifiers().testFlag(Qt::ControlModifier) &&
             !event->text().isEmpty()) {

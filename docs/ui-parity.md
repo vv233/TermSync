@@ -31,7 +31,7 @@ Legend: `→ Mn` = target milestone.
 - [x] **M14** Serial  ✅ *SerialConnection via the native OS serial API (Win32 CreateFile/ReadFile + POSIX termios) on a worker thread — no Qt SerialPort dep; wired into Quick Connect (Serial protocol, baud) and MainWindow. Code-complete; live test needs a real/virtual serial device the sandbox lacks*
 - [x] **M15** Scripting engine  ✅ *QJSEngine-based JavaScript automation with a SecureCRT-style crt.Screen/crt.Session object model (Send/SendLine/WaitForString/Get/Sleep), 7 unit tests; Script→Run executes .js against the active terminal via TerminalScriptContext. Python + record/map-to-button are follow-ups*
 - [x] **M16a** TN3270 host emulation  ✅ *TN3270 Telnet negotiation + EOR records; basic 3270 screen/field model (Write/EraseWrite/SBA/SF/RA/EUA), editable unprotected fields, Enter modified-field submit, Quick Connect protocol option; 2 stream parser unit tests. TN5250 and full 3270 attributes/keys remain M16b follow-ups*
-- [ ] **M16b** TN5250 + full 3270 attributes/keyboard
+- [x] **M16b** TN5250 (first pass) + full 3270 attributes/keyboard  ✅ *3270: full AID keyset (PF1-24/PA1-3/Clear, PA short-read), field navigation (Tab/Backtab/Home), extended field attributes (SFE/SA color/highlight/intensity) — 6 stream tests; TerminalWidget now sends F1-F12/Backtab. TN5250: Telnet negotiation (IBM-3179-2) + read-only Write-to-Display render (SBA/RA/text) — 2 tests. TN5250 field input/full datastream remains a follow-up*
 - [ ] **M17** Firewall/proxy + advanced auth (Kerberos/GSSAPI/X.509)
 - [ ] **M18** Advanced transfer (parallel, high-speed SFTP pipeline, throttle, resume, relentless, bookmarks)
 - [ ] **M19** Automation/scheduler/CLI tools + remote file editing

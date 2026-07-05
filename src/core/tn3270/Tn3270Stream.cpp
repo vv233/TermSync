@@ -14,8 +14,16 @@ constexpr unsigned char ORDER_SBA = 0x11;
 constexpr unsigned char ORDER_EUA = 0x12;
 constexpr unsigned char ORDER_IC = 0x13;
 constexpr unsigned char ORDER_SF = 0x1D;
+constexpr unsigned char ORDER_SFE = 0x29;  // start field extended
+constexpr unsigned char ORDER_SA = 0x28;   // set attribute
+constexpr unsigned char ORDER_MF = 0x2C;   // modify field
 constexpr unsigned char ORDER_PT = 0x05;
 constexpr unsigned char ORDER_RA = 0x3C;
+
+// Extended attribute type codes.
+constexpr unsigned char ATTR_FIELD = 0xC0;
+constexpr unsigned char ATTR_HIGHLIGHT = 0x41;
+constexpr unsigned char ATTR_COLOR = 0x42;
 
 char32_t ebcdicToUnicode(unsigned char c)
 {
@@ -181,6 +189,38 @@ void Tn3270Stream::processRecord(const QByteArray &record)
             if (i < record.size())
                 startField(static_cast<unsigned char>(record[i++]));
             break;
+        case ORDER_SFE: {
+            // SFE: <count> then <type,value> pairs. Start a field and apply
+            // the basic-field/color/highlight attributes from the pairs.
+            if (i >= record.size())
+                break;
+            const int count = static_cast<unsigned char>(record[i++]);
+            unsigned char attr = 0x20, color = 0, highlight = 0;
+            for (int p = 0; p < count && i + 1 < record.size(); ++p) {
+                const auto type = static_cast<unsigned char>(record[i]);
+                const auto value = static_cast<unsigned char>(record[i + 1]);
+                i += 2;
+                if (type == ATTR_FIELD) attr = value;
+                else if (type == ATTR_COLOR) color = value;
+                else if (type == ATTR_HIGHLIGHT) highlight = value;
+            }
+            startFieldExtended(attr, color, highlight);
+            break;
+        }
+        case ORDER_SA:
+            // Set-attribute for following characters: skip the type/value pair
+            // (character-level rendition is not yet applied to cells).
+            if (i + 1 < record.size())
+                i += 2;
+            break;
+        case ORDER_MF: {
+            // Modify field: skip <count> type/value pairs.
+            if (i >= record.size())
+                break;
+            const int count = static_cast<unsigned char>(record[i++]);
+            i += count * 2;
+            break;
+        }
         case ORDER_IC:
             break;
         case ORDER_PT:
@@ -275,10 +315,32 @@ void Tn3270Stream::moveCursor(int delta)
     setCursor(m_cursor + delta);
 }
 
-QByteArray Tn3270Stream::submitEnter()
+unsigned char Tn3270Stream::aidForPf(int n)
+{
+    if (n >= 1 && n <= 9)
+        return static_cast<unsigned char>(0xF0 + n);   // PF1..PF9
+    if (n == 10) return 0x7A;
+    if (n == 11) return 0x7B;
+    if (n == 12) return 0x7C;
+    if (n >= 13 && n <= 21)
+        return static_cast<unsigned char>(0xC0 + (n - 12)); // PF13..PF21 = C1..C9
+    if (n == 22) return 0x4A;
+    if (n == 23) return 0x4B;
+    if (n == 24) return 0x4C;
+    return AID_ENTER;
+}
+
+QByteArray Tn3270Stream::submit(unsigned char aid)
 {
     QByteArray out;
-    out.append(static_cast<char>(0x7D)); // AID Enter
+    out.append(static_cast<char>(aid));
+
+    // PA keys and Clear produce a "short read": AID + cursor address only.
+    if (aid == AID_PA1 || aid == AID_PA2 || aid == AID_PA3 || aid == AID_CLEAR) {
+        out += encodeAddress(m_cursor);
+        return out;
+    }
+
     out += encodeAddress(m_cursor);
     for (Field &field : m_fields) {
         if (field.protectedField || !field.modified)
@@ -296,6 +358,67 @@ QByteArray Tn3270Stream::submitEnter()
         field.modified = false;
     }
     return out;
+}
+
+void Tn3270Stream::nextField()
+{
+    if (m_fields.isEmpty())
+        return;
+    const int n = m_fields.size();
+    // Find the field the cursor is in (or after), then advance to the next
+    // unprotected field's first input cell.
+    for (int step = 1; step <= n; ++step) {
+        // Look for the next field whose start is > cursor (wrapping).
+        int bestStart = -1, bestIdx = -1;
+        for (int i = 0; i < n; ++i) {
+            if (m_fields[i].protectedField)
+                continue;
+            const int s = m_fields[i].start;
+            if (s > m_cursor && (bestStart < 0 || s < bestStart)) {
+                bestStart = s;
+                bestIdx = i;
+            }
+        }
+        if (bestIdx < 0) {
+            // Wrap to the first unprotected field.
+            setCursor(0);
+            setCursor(firstInputCell());
+            return;
+        }
+        setCursor(m_fields[bestIdx].start + 1);
+        return;
+    }
+}
+
+void Tn3270Stream::prevField()
+{
+    if (m_fields.isEmpty())
+        return;
+    int bestStart = -1, bestIdx = -1;
+    for (int i = 0; i < m_fields.size(); ++i) {
+        if (m_fields[i].protectedField)
+            continue;
+        const int s = m_fields[i].start;
+        if (s < m_cursor - 1 && s > bestStart) {
+            bestStart = s;
+            bestIdx = i;
+        }
+    }
+    if (bestIdx < 0) {
+        // Wrap to the last unprotected field.
+        for (int i = 0; i < m_fields.size(); ++i)
+            if (!m_fields[i].protectedField && m_fields[i].start > bestStart) {
+                bestStart = m_fields[i].start;
+                bestIdx = i;
+            }
+    }
+    if (bestIdx >= 0)
+        setCursor(m_fields[bestIdx].start + 1);
+}
+
+void Tn3270Stream::home()
+{
+    setCursor(firstInputCell());
 }
 
 QString Tn3270Stream::plainText() const
@@ -356,9 +479,18 @@ void Tn3270Stream::putChar(unsigned char ebcdic)
 
 void Tn3270Stream::startField(unsigned char attr)
 {
+    startFieldExtended(attr, 0, 0);
+}
+
+void Tn3270Stream::startFieldExtended(unsigned char attr, unsigned char color,
+                                      unsigned char highlight)
+{
     Field field;
     field.start = m_cursor;
     field.protectedField = (attr & 0x20) != 0;
+    field.attrByte = attr;
+    field.color = color;
+    field.highlight = highlight;
     m_cells[m_cursor] = U' ';
     m_touched[m_cursor] = false;
     m_fields.append(field);

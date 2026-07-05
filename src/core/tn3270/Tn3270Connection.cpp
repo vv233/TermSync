@@ -1,6 +1,8 @@
 #include "tn3270/Tn3270Connection.h"
 
+#include <QHash>
 #include <QTcpSocket>
+#include <cctype>
 
 namespace termsync::core {
 
@@ -65,7 +67,12 @@ void Tn3270Connection::sendData(const QByteArray &data)
     for (int i = 0; i < data.size(); ++i) {
         const auto b = static_cast<unsigned char>(data[i]);
         if (b == '\r') {
-            sendRecord(m_stream.submitEnter());
+            sendRecord(m_stream.submit(Tn3270Stream::AID_ENTER));
+            continue;
+        }
+        if (b == '\t') {
+            m_stream.nextField();
+            redraw();
             continue;
         }
         if (b == 0x7F || b == '\b') {
@@ -73,17 +80,39 @@ void Tn3270Connection::sendData(const QByteArray &data)
             redraw();
             continue;
         }
-        if (b == 0x1B && i + 2 < data.size() && data[i + 1] == '[') {
+        // ESC O <P..S> => F1..F4 (xterm SS3 form).
+        if (b == 0x1B && i + 2 < data.size() && data[i + 1] == 'O') {
             const char key = data[i + 2];
-            if (key == 'C')
-                m_stream.moveCursor(1);
-            else if (key == 'D')
-                m_stream.moveCursor(-1);
-            else if (key == 'A')
-                m_stream.moveCursor(-80);
-            else if (key == 'B')
-                m_stream.moveCursor(80);
             i += 2;
+            if (key >= 'P' && key <= 'S')
+                sendRecord(m_stream.submit(Tn3270Stream::aidForPf(key - 'P' + 1)));
+            continue;
+        }
+        if (b == 0x1B && i + 2 < data.size() && data[i + 1] == '[') {
+            // Read the CSI sequence up to its final letter/tilde.
+            int j = i + 2;
+            QByteArray params;
+            while (j < data.size() && (isdigit(data[j]) || data[j] == ';')) {
+                params.append(data[j]);
+                ++j;
+            }
+            const char fin = j < data.size() ? data[j] : 0;
+            i = j;
+            if (fin == 'C') m_stream.moveCursor(1);
+            else if (fin == 'D') m_stream.moveCursor(-1);
+            else if (fin == 'A') m_stream.moveCursor(-m_stream.cols());
+            else if (fin == 'B') m_stream.moveCursor(m_stream.cols());
+            else if (fin == 'H') m_stream.home();
+            else if (fin == 'Z') m_stream.prevField(); // back-tab
+            else if (fin == '~') {
+                // Function keys F5..F12 arrive as ESC[15~ .. ESC[24~.
+                static const QHash<int, int> pfForCode = {
+                    {15, 5}, {17, 6}, {18, 7}, {19, 8}, {20, 9}, {21, 10},
+                    {23, 11}, {24, 12}};
+                const int code = params.toInt();
+                if (pfForCode.contains(code))
+                    sendRecord(m_stream.submit(Tn3270Stream::aidForPf(pfForCode.value(code))));
+            }
             redraw();
             continue;
         }
