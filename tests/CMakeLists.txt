@@ -7,6 +7,7 @@ add_executable(termsync_unit_tests
     unit/smoke_test.cpp
     unit/vt_parser_test.cpp
     unit/profile_store_test.cpp
+    unit/sync_diff_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests
@@ -14,6 +15,7 @@ target_link_libraries(termsync_unit_tests
         GTest::gtest
         termsync_terminal
         termsync_core
+        termsync_transfer
         Qt6::Core
         Qt6::Sql
 )

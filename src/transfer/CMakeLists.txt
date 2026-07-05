@@ -8,6 +8,11 @@ add_library(termsync_transfer STATIC
     sftp/SftpFileEngine.cpp
     queue/SftpSession.h
     queue/SftpSession.cpp
+    sync/SyncTypes.h
+    sync/DirectoryDiffer.h
+    sync/DirectoryDiffer.cpp
+    sync/SyncEngine.h
+    sync/SyncEngine.cpp
 )
 
 target_include_directories(termsync_transfer

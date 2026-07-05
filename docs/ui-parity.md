@@ -21,7 +21,7 @@ Legend: `→ Mn` = target milestone.
 - [x] **M4** Session profile manager + tabbed UI + credential store  ✅ *SQLite ProfileStore (6 tests) · Windows Credential Manager round-trip verified · host-key TOFU · session tree; integrated double-click GUI flow wired (constituent parts verified)*
 - [x] **M5** SFTP listing + basic transfer  ✅ *SftpFileEngine + SftpBrowserWidget; connect/auth/list verified live against Rebex; upload/download implemented (round-trip pending a writable test server)*
 - [x] **M6** Dual-pane browser + transfer queue  ✅ *DualPaneBrowser (local QFileSystemModel | remote SFTP) + worker-threaded SftpSession + transfer-queue panel with progress/cancel + remote mkdir/delete/rename/chmod; verified live against Rebex (download read-path; writes code-complete, need writable server)*
-- [ ] **M7** Sync engine (one-way, then two-way)
+- [x] **M7** Sync engine (one-way + two-way)  ✅ *DirectoryDiffer + SyncEngine (state persistence, executor); 13 deterministic tests incl. end-to-end idempotency & conflict policies. GUI Synchronize dialog is a thin follow-up (needs recursive remote enumeration)*
 - [ ] **M8** FTP/FTPS
 - [ ] **M9** Credential vault + public-key/agent auth
 - [ ] **M10** Packaging (first releasable MVP)
