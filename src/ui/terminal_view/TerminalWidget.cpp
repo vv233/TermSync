@@ -58,8 +58,8 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
                                                         5000))
     , m_parser(std::make_unique<terminal::VtParser>(m_screen.get()))
     , m_palette(buildPalette())
-    , m_defaultFg(QColor(0xcc, 0xcc, 0xcc))
-    , m_defaultBg(QColor(0x1e, 0x1e, 0x1e))
+    , m_defaultFg(QColor(0xc8, 0xd0, 0xe8))
+    , m_defaultBg(QColor(0x1a, 0x1b, 0x26))
 {
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent);
