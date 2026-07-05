@@ -58,6 +58,7 @@ private:
                       const QString &password);
     void startSftpSession(const core::ConnectionProfile &profile,
                           const QString &password);
+    void startTelnetSession(const core::ConnectionProfile &profile);
 
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.

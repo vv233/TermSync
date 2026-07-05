@@ -27,7 +27,7 @@ Legend: `→ Mn` = target milestone.
 - [x] **M10** Packaging (first releasable MVP)  ✅ *About dialog, THIRD_PARTY_NOTICES, windeployqt integration + CPack (NSIS;ZIP); verified self-contained launch with Qt off PATH and produced a 35 MB distributable ZIP (NSIS .exe needs NSIS installed on the build host)*
 - [x] **M11** Port forwarding (local + dynamic SOCKS)  ✅ *PortForwarder (own SSH session + QTcpServer + libssh2 direct-tcpip piping); SOCKS5 parser 9 unit tests. Live forward needs a reachable target through the server; remote-forward + Session Options panel are follow-ups*
 - [x] **M12** SCP + X/Y/ZMODEM primitives  ✅ *SCP download/upload on the SSH session (libssh2_scp); X/Y/ZMODEM framing — CRC-16/XMODEM, CRC-32, 128/1024 block encode/parse, ZDLE escaping — 7 unit tests. Full interactive ZMODEM rz/sz terminal session is a follow-up*
-- [ ] **M13** Telnet / rlogin
+- [x] **M13** Telnet  ✅ *AbstractTerminalConnection base lets TerminalWidget drive any protocol; TelnetConnection (IAC negotiation, NAWS, terminal-type) verified live against telehack.com; SSH regression-verified. rlogin is a thin follow-up variant*
 - [ ] **M14** Serial
 - [ ] **M15** Scripting engine
 - [ ] **M16** TN3270 / TN5250 host emulation

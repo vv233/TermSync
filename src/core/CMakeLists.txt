@@ -6,6 +6,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Sql Network)
 find_package(libssh2 CONFIG REQUIRED)
 
 add_library(termsync_core STATIC
+    AbstractTerminalConnection.h
     model/ConnectionProfile.h
     store/ProfileStore.h
     store/ProfileStore.cpp
@@ -17,6 +18,8 @@ add_library(termsync_core STATIC
     ssh/SshConnection.cpp
     ssh/PortForwarder.h
     ssh/PortForwarder.cpp
+    telnet/TelnetConnection.h
+    telnet/TelnetConnection.cpp
 )
 
 target_include_directories(termsync_core

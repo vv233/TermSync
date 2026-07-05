@@ -50,11 +50,16 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
     m_protocol->addItem(tr("SFTP"), static_cast<int>(core::Protocol::SFTP_ONLY));
     m_protocol->addItem(tr("FTP"), static_cast<int>(core::Protocol::FTP));
     m_protocol->addItem(tr("FTPS"), static_cast<int>(core::Protocol::FTPS));
+    m_protocol->addItem(tr("Telnet"), static_cast<int>(core::Protocol::TELNET));
     // Default the port to the protocol's usual value.
     connect(m_protocol, &QComboBox::currentIndexChanged, this, [this](int) {
         const auto proto = static_cast<core::Protocol>(m_protocol->currentData().toInt());
-        const bool ftp = proto == core::Protocol::FTP || proto == core::Protocol::FTPS;
-        m_port->setValue(ftp ? 21 : 22);
+        int port = 22;
+        if (proto == core::Protocol::FTP || proto == core::Protocol::FTPS)
+            port = 21;
+        else if (proto == core::Protocol::TELNET)
+            port = 23;
+        m_port->setValue(port);
     });
 
     auto *form = new QFormLayout;

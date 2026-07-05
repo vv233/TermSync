@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 
+#include "AbstractTerminalConnection.h"
 #include "screen/ScreenBuffer.h"
 #include "ssh/SshConnection.h"
 #include "vt/VtParser.h"
@@ -22,7 +23,12 @@ class TerminalWidget : public QWidget
     Q_OBJECT
 
 public:
+    // SSH session (creates and owns an SshConnection, with host-key handling).
     explicit TerminalWidget(const core::SshConnectionParams &params,
+                            QWidget *parent = nullptr);
+    // Generic session over any connection (Telnet, serial, ...). Takes
+    // ownership; the caller initiates the connection after construction.
+    explicit TerminalWidget(core::AbstractTerminalConnection *connection,
                             QWidget *parent = nullptr);
     ~TerminalWidget() override;
 
@@ -75,7 +81,11 @@ private:
 
     void scrollToBottom();
 
-    core::SshConnection *m_connection = nullptr;
+    void initView();       // shared widget setup (font, blink, metrics)
+    void wireConnection(); // connect the common AbstractTerminalConnection signals
+
+    core::AbstractTerminalConnection *m_connection = nullptr;
+    core::SshConnection *m_ssh = nullptr; // non-null only for SSH sessions
     std::unique_ptr<terminal::ScreenBuffer> m_screen;
     std::unique_ptr<terminal::VtParser> m_parser;
 

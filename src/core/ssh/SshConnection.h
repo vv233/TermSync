@@ -4,6 +4,8 @@
 #include <QObject>
 #include <QString>
 
+#include "AbstractTerminalConnection.h"
+
 class QThread;
 
 namespace termsync::core {
@@ -46,7 +48,7 @@ class SshWorker; // internal, runs on the worker thread
 // M2 scope: connect, password auth, one interactive shell channel with a
 // PTY, and raw byte read/write. VT parsing (M3) and multi-channel/SFTP
 // (M5) build on top of this class.
-class SshConnection : public QObject
+class SshConnection : public AbstractTerminalConnection
 {
     Q_OBJECT
 
@@ -65,31 +67,17 @@ public:
     // accept=false aborts the connection.
     void approveHostKey(bool accept);
 
-    // Sends raw bytes (typically keystrokes) to the remote shell.
-    void sendData(const QByteArray &data);
-
-    // Informs the remote PTY of a new window size.
-    void resize(int cols, int rows);
-
-    // Closes the channel and tears down the session/thread.
-    void disconnectFromHost();
-
-    bool isConnected() const { return m_connected; }
+    void sendData(const QByteArray &data) override;
+    void resize(int cols, int rows) override;
+    void disconnectFromHost() override;
+    bool isConnected() const override { return m_connected; }
 
 signals:
-    // Emitted once the shell channel is open and ready for I/O.
-    void connected();
-    // Host key fingerprint seen during handshake (SHA-256, hex). M2 accepts
-    // it automatically; M4 turns this into a trust-on-first-use prompt.
+    // Host key fingerprint seen during handshake (SHA-256, hex) — SSH-specific.
     void hostKeyFingerprint(const QString &sha256Hex);
-    // Raw bytes received from the remote shell.
-    void dataReceived(const QByteArray &data);
     // Authentication failed (bad password, method not allowed, ...).
     void authenticationFailed(const QString &reason);
-    // Any other fatal error (connect refused, handshake failed, ...).
-    void errorOccurred(const QString &message);
-    // The session ended (remote closed, or disconnectFromHost()).
-    void disconnected();
+    // (connected / dataReceived / errorOccurred / disconnected are inherited.)
 
 private:
     QThread *m_thread = nullptr;

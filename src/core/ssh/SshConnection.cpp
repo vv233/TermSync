@@ -437,7 +437,7 @@ private:
 // SshConnection — public facade (UI thread).
 // ---------------------------------------------------------------------------
 SshConnection::SshConnection(QObject *parent)
-    : QObject(parent)
+    : AbstractTerminalConnection(parent)
 {
     qRegisterMetaType<termsync::core::SshConnectionParams>();
 

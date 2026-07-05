@@ -20,6 +20,7 @@
 #include <QWidget>
 
 #include "session_dialogs/QuickConnectDialog.h"
+#include "telnet/TelnetConnection.h"
 #include "terminal_view/TerminalWidget.h"
 #include "transfer_view/DualPaneBrowser.h"
 #include "transfer_view/SftpBrowserWidget.h"
@@ -235,9 +236,12 @@ void MainWindow::openQuickConnect()
         }
     }
 
-    // SSH2 opens a terminal; file-transfer protocols open the dual-pane browser.
+    // SSH2 opens a terminal; Telnet opens a (credential-less) terminal;
+    // file-transfer protocols open the dual-pane browser.
     if (profile.protocol == core::Protocol::SSH2)
         startSession(profile, password);
+    else if (profile.protocol == core::Protocol::TELNET)
+        startTelnetSession(profile);
     else
         startSftpSession(profile, password);
 }
@@ -334,6 +338,8 @@ void MainWindow::onSessionActivated(QTreeWidgetItem *item, int)
             // dual-pane browser.
             if (p.protocol == core::Protocol::SSH2)
                 connectProfile(p);
+            else if (p.protocol == core::Protocol::TELNET)
+                startTelnetSession(p);
             else
                 connectProfileSftp(p);
             return;
@@ -488,6 +494,28 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
     const int index = m_sessionTabs->addTab(view, tr("%1 Files").arg(baseTitle));
     m_sessionTabs->setCurrentIndex(index);
     statusBar()->showMessage(tr("Opening SFTP for %1...").arg(profile.host), 4000);
+}
+
+void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
+{
+    auto *conn = new core::TelnetConnection;
+    auto *view = new TerminalWidget(conn, this); // takes ownership of conn
+    connect(view, &TerminalWidget::statusMessage, this,
+            [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+
+    const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
+    const int index = m_sessionTabs->addTab(view, baseTitle);
+    m_sessionTabs->setCurrentIndex(index);
+    connect(view, &TerminalWidget::titleChanged, this,
+            [this, view](const QString &t) {
+                const int i = m_sessionTabs->indexOf(view);
+                if (i >= 0 && !t.isEmpty())
+                    m_sessionTabs->setTabText(i, t);
+            });
+    view->setFocus();
+
+    conn->connectToHost(profile.host, profile.port ? profile.port : 23);
+    statusBar()->showMessage(tr("Connecting (Telnet) to %1...").arg(profile.host), 4000);
 }
 
 bool MainWindow::verifyHostKey(const QString &host, quint16 port,

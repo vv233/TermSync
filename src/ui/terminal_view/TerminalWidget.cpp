@@ -61,6 +61,58 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
     , m_defaultFg(QColor(0xc8, 0xd0, 0xe8))
     , m_defaultBg(QColor(0x1a, 0x1b, 0x26))
 {
+    initView();
+
+    auto *ssh = new core::SshConnection(this);
+    m_ssh = ssh;
+    m_connection = ssh;
+    wireConnection();
+
+    // SSH-specific: host-key trust-on-first-use, then authenticate.
+    connect(ssh, &core::SshConnection::hostKeyFingerprint, this,
+            [this, ssh](const QString &fp) {
+                m_parser->parse(QByteArray("[host key SHA256: ") + fp.toUtf8() +
+                                "]\r\n");
+                update();
+                if (m_hostKeyVerifier)
+                    m_hostKeyVerifier(fp, [ssh](bool accept) {
+                        ssh->approveHostKey(accept);
+                    });
+                else
+                    ssh->approveHostKey(true); // auto-trust (tests)
+            });
+    connect(ssh, &core::SshConnection::authenticationFailed, this,
+            [this](const QString &r) {
+                m_parser->parse(QByteArray("\r\n[authentication failed: ") +
+                                r.toUtf8() + "]\r\n");
+                emit statusMessage(tr("Authentication failed"));
+                update();
+            });
+
+    ssh->connectToHost(params);
+}
+
+TerminalWidget::TerminalWidget(core::AbstractTerminalConnection *connection,
+                               QWidget *parent)
+    : QWidget(parent)
+    , m_screen(std::make_unique<terminal::ScreenBuffer>(80, 24, 5000))
+    , m_parser(std::make_unique<terminal::VtParser>(m_screen.get()))
+    , m_palette(buildPalette())
+    , m_defaultFg(QColor(0xc8, 0xd0, 0xe8))
+    , m_defaultBg(QColor(0x1a, 0x1b, 0x26))
+{
+    initView();
+    m_connection = connection;
+    connection->setParent(this);
+    wireConnection();
+    // The caller initiates the connection after construction so its signals are
+    // already wired here.
+}
+
+TerminalWidget::~TerminalWidget() = default;
+
+void TerminalWidget::initView()
+{
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent);
     setCursor(Qt::IBeamCursor);
@@ -77,7 +129,6 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
     setFont(f);
     recomputeCellMetrics();
 
-    // Blinking block cursor.
     m_blinkTimer = new QTimer(this);
     m_blinkTimer->setInterval(530);
     connect(m_blinkTimer, &QTimer::timeout, this, [this] {
@@ -86,56 +137,31 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
     });
     m_blinkTimer->start();
 
-    // Parser -> widget notifications.
     m_parser->onTitleChanged = [this](const QString &t) { emit titleChanged(t); };
     m_parser->onApplicationCursorKeys = [this](bool on) { m_appCursorKeys = on; };
+}
 
-    // SSH wiring.
-    m_connection = new core::SshConnection(this);
-    connect(m_connection, &core::SshConnection::dataReceived, this,
+void TerminalWidget::wireConnection()
+{
+    connect(m_connection, &core::AbstractTerminalConnection::dataReceived, this,
             &TerminalWidget::onDataReceived);
-    connect(m_connection, &core::SshConnection::connected, this, [this] {
+    connect(m_connection, &core::AbstractTerminalConnection::connected, this, [this] {
         m_connected = true;
         emit statusMessage(tr("Connected"));
     });
-    connect(m_connection, &core::SshConnection::hostKeyFingerprint, this,
-            [this](const QString &fp) {
-                m_parser->parse(QByteArray("[host key SHA256: ") + fp.toUtf8() +
-                                "]\r\n");
-                update();
-                if (m_hostKeyVerifier) {
-                    // Respond on the GUI thread via the connection facade.
-                    m_hostKeyVerifier(fp, [this](bool accept) {
-                        m_connection->approveHostKey(accept);
-                    });
-                } else {
-                    m_connection->approveHostKey(true); // auto-trust (tests)
-                }
-            });
-    connect(m_connection, &core::SshConnection::authenticationFailed, this,
-            [this](const QString &r) {
-                m_parser->parse(QByteArray("\r\n[authentication failed: ") +
-                                r.toUtf8() + "]\r\n");
-                emit statusMessage(tr("Authentication failed"));
-                update();
-            });
-    connect(m_connection, &core::SshConnection::errorOccurred, this,
+    connect(m_connection, &core::AbstractTerminalConnection::errorOccurred, this,
             [this](const QString &m) {
                 m_parser->parse(QByteArray("\r\n[error: ") + m.toUtf8() + "]\r\n");
                 emit statusMessage(tr("Error: %1").arg(m));
                 update();
             });
-    connect(m_connection, &core::SshConnection::disconnected, this, [this] {
+    connect(m_connection, &core::AbstractTerminalConnection::disconnected, this, [this] {
         m_connected = false;
         m_parser->parse("\r\n[disconnected]\r\n");
         emit statusMessage(tr("Disconnected"));
         update();
     });
-
-    m_connection->connectToHost(params);
 }
-
-TerminalWidget::~TerminalWidget() = default;
 
 void TerminalWidget::recomputeCellMetrics()
 {
