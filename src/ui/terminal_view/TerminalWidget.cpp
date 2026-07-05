@@ -9,6 +9,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QTimer>
 #include <QWheelEvent>
 #include <algorithm>
 
@@ -64,10 +65,26 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
     setAttribute(Qt::WA_OpaquePaintEvent);
     setCursor(Qt::IBeamCursor);
 
-    QFont f = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    // Prefer a good programming font; fall back to the platform's fixed font.
+    QFont f;
+    f.setFamilies({QStringLiteral("Cascadia Mono"), QStringLiteral("Cascadia Code"),
+                   QStringLiteral("Consolas"), QStringLiteral("Menlo"),
+                   QStringLiteral("DejaVu Sans Mono"),
+                   QFontDatabase::systemFont(QFontDatabase::FixedFont).family()});
+    f.setStyleHint(QFont::Monospace);
+    f.setFixedPitch(true);
     f.setPointSize(11);
     setFont(f);
     recomputeCellMetrics();
+
+    // Blinking block cursor.
+    m_blinkTimer = new QTimer(this);
+    m_blinkTimer->setInterval(530);
+    connect(m_blinkTimer, &QTimer::timeout, this, [this] {
+        m_cursorBlinkOn = !m_cursorBlinkOn;
+        update();
+    });
+    m_blinkTimer->start();
 
     // Parser -> widget notifications.
     m_parser->onTitleChanged = [this](const QString &t) { emit titleChanged(t); };
@@ -124,18 +141,18 @@ void TerminalWidget::recomputeCellMetrics()
 {
     QFontMetricsF fm(font());
     m_cellW = std::ceil(fm.horizontalAdvance(QLatin1Char('M')));
-    m_cellH = std::ceil(fm.height());
-    m_baseline = fm.ascent();
+    m_cellH = std::ceil(fm.height()) + 2.0; // a little line spacing
+    m_baseline = fm.ascent() + 1.0;
 }
 
 int TerminalWidget::visibleCols() const
 {
-    return std::max(1, static_cast<int>(width() / m_cellW));
+    return std::max(1, static_cast<int>((width() - 2 * m_padX) / m_cellW));
 }
 
 int TerminalWidget::visibleRows() const
 {
-    return std::max(1, static_cast<int>(height() / m_cellH));
+    return std::max(1, static_cast<int>((height() - 2 * m_padY) / m_cellH));
 }
 
 int TerminalWidget::totalDocRows() const
@@ -173,6 +190,10 @@ void TerminalWidget::onDataReceived(const QByteArray &data)
     m_parser->parse(data);
     if (m_followTail)
         scrollToBottom();
+    // Keep the cursor solid during active output, and restart the blink cycle.
+    m_cursorBlinkOn = true;
+    if (m_blinkTimer)
+        m_blinkTimer->start();
     update();
 }
 
@@ -194,7 +215,9 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
     const int cols = m_screen->cols();
     const int sb = m_screen->scrollbackSize();
     const int cursorDocRow = sb + m_screen->cursorRow();
-    const bool showCursor = m_screen->cursorVisible() && m_followTail;
+    const bool focused = hasFocus();
+    const bool showCursor = m_screen->cursorVisible() && m_followTail &&
+                            (m_cursorBlinkOn || !focused);
 
     QFont normalFont = font();
     QFont boldFont = font();
@@ -205,9 +228,10 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
         if (docRow < 0 || docRow >= totalDocRows())
             continue;
         const Line &line = docLine(docRow);
-        const qreal y = viewRow * m_cellH;
+        const qreal y = m_padY + viewRow * m_cellH;
 
         for (int col = 0; col < cols && col < line.size(); ++col) {
+            const qreal x = m_padX + col * m_cellW;
             const Cell &cell = line[col];
             const bool bold = cell.hasFlag(CellFlag::Bold);
 
@@ -237,7 +261,7 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
             if (selected)
                 std::swap(fg, bg);
 
-            const QRectF cellRect(col * m_cellW, y, m_cellW, m_cellH);
+            const QRectF cellRect(x, y, m_cellW, m_cellH);
             if (bg != m_defaultBg || selected)
                 painter.fillRect(cellRect, bg);
 
@@ -252,7 +276,7 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
 
             if (cell.ch != U' ' && !cell.hasFlag(CellFlag::Invisible)) {
                 painter.setFont(bold ? boldFont : normalFont);
-                painter.drawText(QPointF(col * m_cellW, y + m_baseline),
+                painter.drawText(QPointF(x, y + m_baseline),
                                  QString(QChar(static_cast<char16_t>(cell.ch))));
             }
 
@@ -354,9 +378,9 @@ void TerminalWidget::wheelEvent(QWheelEvent *event)
 // ---------------------------------------------------------------------------
 QPoint TerminalWidget::cellAtPixel(const QPoint &pos) const
 {
-    const int viewRow = static_cast<int>(pos.y() / m_cellH);
-    const int col = static_cast<int>(pos.x() / m_cellW);
-    const int docRow = m_topLine + viewRow;
+    const int viewRow = static_cast<int>((pos.y() - m_padY) / m_cellH);
+    const int col = static_cast<int>((pos.x() - m_padX) / m_cellW);
+    const int docRow = m_topLine + std::max(0, viewRow);
     return QPoint(docRow, std::clamp(col, 0, m_screen->cols() - 1));
 }
 

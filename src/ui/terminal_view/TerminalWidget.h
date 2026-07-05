@@ -83,6 +83,12 @@ private:
     qreal m_cellW = 8.0;
     qreal m_cellH = 16.0;
     qreal m_baseline = 12.0;
+    qreal m_padX = 6.0;   // inner padding so glyphs don't hug the edge
+    qreal m_padY = 4.0;
+
+    // Cursor blink.
+    class QTimer *m_blinkTimer = nullptr;
+    bool m_cursorBlinkOn = true;
 
     // Scrollback view: index of the top visible document row.
     int m_topLine = 0;

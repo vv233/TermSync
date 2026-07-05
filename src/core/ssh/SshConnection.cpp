@@ -3,6 +3,7 @@
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QMutex>
+#include <QSocketNotifier>
 #include <QThread>
 #include <QTimer>
 #include <cstdlib>
@@ -133,10 +134,17 @@ public slots:
         libssh2_session_set_blocking(m_session, 0);
         emit connected();
 
-        // Pump I/O from the worker thread's event loop so queued keystroke
-        // writes and resize requests are still serviced between reads.
+        // React to incoming data the instant the socket becomes readable, so
+        // output has no polling latency.
+        m_readNotifier = new QSocketNotifier(static_cast<qintptr>(m_socket),
+                                             QSocketNotifier::Read, this);
+        connect(m_readNotifier, &QSocketNotifier::activated, this,
+                &SshWorker::pumpIo);
+
+        // A low-frequency safety net: libssh2 can buffer decrypted data that
+        // arrived with an earlier packet, which won't re-trigger the notifier.
         m_pump = new QTimer(this);
-        m_pump->setInterval(15);
+        m_pump->setInterval(40);
         connect(m_pump, &QTimer::timeout, this, &SshWorker::pumpIo);
         m_pump->start();
     }
@@ -389,6 +397,11 @@ private:
 
     void teardown()
     {
+        if (m_readNotifier) {
+            m_readNotifier->setEnabled(false);
+            m_readNotifier->deleteLater();
+            m_readNotifier = nullptr;
+        }
         if (m_pump) {
             m_pump->stop();
             m_pump->deleteLater();
@@ -416,6 +429,7 @@ private:
     LIBSSH2_SESSION *m_session = nullptr;
     LIBSSH2_CHANNEL *m_channel = nullptr;
     QTimer *m_pump = nullptr;
+    QSocketNotifier *m_readNotifier = nullptr;
     bool m_reportedClose = false;
 };
 

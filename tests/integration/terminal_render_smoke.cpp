@@ -8,11 +8,13 @@
 #include <QTimer>
 #include <cstdio>
 
+#include "common/Theme.h"
 #include "terminal_view/TerminalWidget.h"
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    termsync::ui::applyDarkTheme(app);
     if (argc < 6) {
         std::fprintf(stderr,
                      "usage: terminal_render_smoke <host> <port> <user> <pass> <out.png>\n");

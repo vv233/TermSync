@@ -7,11 +7,13 @@
 #include <QTimer>
 #include <cstdio>
 
+#include "common/Theme.h"
 #include "transfer_view/DualPaneBrowser.h"
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    termsync::ui::applyDarkTheme(app);
     if (argc < 6) {
         std::fprintf(stderr,
                      "usage: dualpane_render_smoke <host> <port> <user> <pass> <out.png>\n");
