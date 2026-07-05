@@ -14,6 +14,7 @@ add_executable(termsync_unit_tests
     unit/script_engine_test.cpp
     unit/tn3270_stream_test.cpp
     unit/tn5250_stream_test.cpp
+    unit/scheduler_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests

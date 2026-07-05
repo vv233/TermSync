@@ -9,8 +9,11 @@
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QStandardPaths>
+#include <QThread>
 #include <memory>
 #include <cstdio>
 #ifndef _WIN32
@@ -19,6 +22,7 @@
 
 #include "FileEngine.h"
 #include "ftp/FtpFileEngine.h"
+#include "schedule/JobScheduler.h"
 #include "sftp/SftpFileEngine.h"
 #include "sync/DirectoryDiffer.h"
 #include "sync/SyncEngine.h"
@@ -110,6 +114,111 @@ bool getTree(FileEngine &e, const QString &remoteRoot, const QString &localRoot)
     return true;
 }
 
+// One-way sync between a local dir and a remote dir, preserving mtime so repeat
+// runs are no-ops. Returns 0 on success. Shared by the `sync` command and jobs.
+int runSync(FileEngine &engine, const QString &local, const QString &remote,
+            bool down, bool del, bool dryRun)
+{
+    using namespace transfer::sync;
+    Listing localList = enumerateLocalTree(local);
+    Listing remoteList;
+    if (!engine.listRecursive(remote, &remoteList))
+        return fail("list remote: " + engine.lastError());
+    DirectoryDiffer differ(down ? Direction::RemoteToLocal : Direction::LocalToRemote,
+                           CompareStrategy::MtimeSize, ConflictPolicy::NewerWins, del);
+    const QVector<SyncAction> actions = differ.diff(localList, remoteList);
+    int changes = 0;
+    for (const auto &a : actions)
+        if (a.type != ActionType::Skip) ++changes;
+    std::fprintf(stderr, "sync: %d change(s)%s\n", changes, dryRun ? " (dry-run)" : "");
+    if (dryRun) {
+        for (const auto &a : actions)
+            if (a.type != ActionType::Skip)
+                std::printf("%-14s %s\n", actionName(a.type), a.relativePath.toUtf8().constData());
+        return 0;
+    }
+    SyncCallbacks cb;
+    cb.upload = [&](const QString &rel) {
+        if (!engine.uploadFile(joinPath(local, rel), joinPath(remote, rel)))
+            return false;
+        if (localList.contains(rel))
+            engine.setModifiedTime(joinPath(remote, rel), localList[rel].mtime);
+        return true; };
+    cb.download = [&](const QString &rel) {
+        const QString dst = joinPath(local, rel);
+        QDir().mkpath(QFileInfo(dst).absolutePath());
+        if (!engine.downloadFile(joinPath(remote, rel), dst))
+            return false;
+        if (remoteList.contains(rel))
+            setLocalMtime(dst, remoteList[rel].mtime);
+        return true; };
+    cb.mkdirRemote = [&](const QString &rel) { return engine.makeDirectory(joinPath(remote, rel)); };
+    cb.mkdirLocal = [&](const QString &rel) { return QDir().mkpath(joinPath(local, rel)); };
+    cb.deleteRemote = [&](const QString &rel) { return engine.removeFile(joinPath(remote, rel)); };
+    cb.deleteLocal = [&](const QString &rel) { return QFile::remove(joinPath(local, rel)); };
+    const SyncReport rep = executeSync(actions, cb);
+    std::fprintf(stderr, "uploaded=%d downloaded=%d deleted=%d failed=%d\n",
+                 rep.uploaded, rep.downloaded, rep.deleted, rep.failed);
+    for (const QString &e : rep.errors)
+        std::fprintf(stderr, "  ! %s\n", e.toUtf8().constData());
+    return rep.failed == 0 ? 0 : 1;
+}
+
+// Build + connect an engine for a scheduled job and run its action headlessly.
+int executeJob(const transfer::schedule::ScheduledJob &j)
+{
+    std::unique_ptr<FileEngine> engine;
+    if (j.protocol == "ftp" || j.protocol == "ftps") {
+        auto ftp = std::make_unique<transfer::FtpFileEngine>();
+        ftp->setExplicitTls(j.protocol == "ftps");
+        engine = std::move(ftp);
+    } else {
+        engine = std::make_unique<transfer::SftpFileEngine>();
+    }
+    if (j.resume) engine->setResume(true);
+    if (j.relentless) engine->setRelentless(true);
+    if (j.ascii) engine->setAsciiMode(true);
+    if (j.preservePerms) engine->setPreservePermissions(true);
+    if (j.throttleKbps > 0)
+        engine->setRateLimitBytesPerSec(static_cast<quint64>(j.throttleKbps) * 1024);
+
+    core::SshConnectionParams cp;
+    cp.host = j.host;
+    cp.port = static_cast<quint16>(j.port ? j.port : (j.protocol == "sftp" ? 22 : 21));
+    cp.username = j.user;
+    if (!j.keyPath.isEmpty()) {
+        cp.authMethod = core::SshAuthMethod::PublicKey;
+        cp.privateKeyPath = j.keyPath;
+        cp.passphrase = j.passphrase;
+    } else {
+        cp.authMethod = core::SshAuthMethod::Password;
+        cp.password = j.password;
+    }
+    if (!engine->connectToHost(cp, [](const QString &) { return true; }))
+        return fail("job '" + j.name + "' connect: " + engine->lastError());
+
+    if (j.command == "sync")
+        return runSync(*engine, j.localPath, j.remotePath, j.down, j.deleteOrphans, false);
+    if (j.command == "put") {
+        if (j.recursive && QFileInfo(j.localPath).isDir())
+            return putTree(*engine, j.localPath, j.remotePath) ? 0 : fail(engine->lastError());
+        return engine->uploadFile(j.localPath, j.remotePath) ? 0 : fail(engine->lastError());
+    }
+    if (j.command == "get") {
+        if (j.recursive)
+            return getTree(*engine, j.remotePath, j.localPath) ? 0 : fail(engine->lastError());
+        return engine->downloadFile(j.remotePath, j.localPath) ? 0 : fail(engine->lastError());
+    }
+    return fail("job '" + j.name + "': unknown command " + j.command);
+}
+
+QString defaultJobsFile()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    QDir().mkpath(dir);
+    return dir + "/jobs.json";
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -152,6 +261,11 @@ int main(int argc, char *argv[])
     QCommandLineOption oDown = opt({"down"}, "sync: remote -> local (default local -> remote).");
     QCommandLineOption oDelete = opt({"delete"}, "sync: delete orphaned files on the target.");
     QCommandLineOption oDryRun = opt({"dry-run"}, "sync: print actions, do not transfer.");
+    QCommandLineOption oJobsFile = opt({"jobs-file"}, "Scheduler jobs file.", "path");
+    QCommandLineOption oId = opt({"id"}, "schedule: job id.", "id");
+    QCommandLineOption oName = opt({"name"}, "schedule: job name.", "name");
+    QCommandLineOption oInterval = opt({"interval"}, "schedule: repeat every N seconds (0=once).", "secs");
+    QCommandLineOption oPoll = opt({"poll"}, "schedule daemon: poll interval seconds.", "secs", "60");
     p.process(app);
 
     const QStringList pos = p.positionalArguments();
@@ -159,6 +273,85 @@ int main(int argc, char *argv[])
         return fail("no command (try --help)");
     const QString command = pos.first();
     const QStringList args = pos.mid(1);
+
+    // --- scheduler: manage/run persisted jobs (no global connection needed) ---
+    if (command == "schedule") {
+        using namespace transfer::schedule;
+        const QString jobsFile = p.isSet(oJobsFile) ? p.value(oJobsFile) : defaultJobsFile();
+        JobScheduler sched;
+        if (!sched.load(jobsFile))
+            return fail("could not read jobs file: " + jobsFile);
+        const QString sub = args.value(0);
+
+        if (sub == "list") {
+            std::printf("jobs (%s):\n", jobsFile.toUtf8().constData());
+            for (const ScheduledJob &j : sched.jobs())
+                std::printf("  %-12s %-6s %s -> %s  every %llds  %s\n",
+                            j.id.toUtf8().constData(), j.command.toUtf8().constData(),
+                            j.localPath.toUtf8().constData(), j.remotePath.toUtf8().constData(),
+                            static_cast<long long>(j.intervalSecs),
+                            j.enabled ? "" : "(disabled)");
+            return 0;
+        }
+        if (sub == "remove") {
+            if (args.size() < 2) return fail("schedule remove <id>");
+            if (!sched.remove(args[1])) return fail("no such job: " + args[1]);
+            return sched.save(jobsFile) ? 0 : fail("save failed");
+        }
+        if (sub == "add") {
+            // schedule add <put|get|sync> <local> <remote>
+            if (args.size() < 4) return fail("schedule add <put|get|sync> <local> <remote>");
+            ScheduledJob j;
+            j.id = p.isSet(oId) ? p.value(oId)
+                                : QString::number(QDateTime::currentSecsSinceEpoch());
+            j.name = p.isSet(oName) ? p.value(oName) : j.id;
+            j.protocol = p.value(oProto).toLower();
+            j.host = p.value(oHost);
+            j.port = p.value(oPort).toInt();
+            j.user = p.value(oUser);
+            j.password = p.value(oPass);
+            j.keyPath = p.value(oKey);
+            j.passphrase = p.value(oPhrase);
+            j.command = args[1];
+            j.localPath = args[2];
+            j.remotePath = args[3];
+            j.down = p.isSet(oDown);
+            j.recursive = p.isSet(oRecursive);
+            j.deleteOrphans = p.isSet(oDelete);
+            j.resume = p.isSet(oResume);
+            j.relentless = p.isSet(oRelentless);
+            j.ascii = p.isSet(oAscii);
+            j.preservePerms = p.isSet(oPreserve);
+            j.throttleKbps = p.value(oThrottle).toLongLong();
+            j.intervalSecs = p.value(oInterval).toLongLong();
+            if (j.host.isEmpty() || j.user.isEmpty())
+                return fail("--host and --user are required");
+            sched.add(j);
+            if (!sched.save(jobsFile)) return fail("save failed");
+            std::printf("added job %s\n", j.id.toUtf8().constData());
+            return 0;
+        }
+        if (sub == "run-due" || sub == "daemon") {
+            const int poll = qMax(1, p.value(oPoll).toInt());
+            for (;;) {
+                JobScheduler s;
+                s.load(jobsFile);
+                const qint64 now = QDateTime::currentSecsSinceEpoch();
+                const QVector<ScheduledJob> due = s.dueJobs(now);
+                for (const ScheduledJob &j : due) {
+                    std::fprintf(stderr, "== running job '%s' ==\n", j.name.toUtf8().constData());
+                    executeJob(j);
+                    s.markRan(j.id, QDateTime::currentSecsSinceEpoch());
+                }
+                if (!due.isEmpty())
+                    s.save(jobsFile);
+                if (sub == "run-due")
+                    return 0;
+                QThread::sleep(static_cast<unsigned long>(poll)); // daemon: keep polling
+            }
+        }
+        return fail("schedule: unknown subcommand (add|list|remove|run-due|daemon)");
+    }
 
     // --- connection parameters ---
     const QString proto = p.value(oProto).toLower();
@@ -267,52 +460,7 @@ int main(int argc, char *argv[])
 
     if (command == "sync") {
         if (!need(2)) return 2;
-        const QString local = args[0], remote = args[1];
-        const bool down = p.isSet(oDown);
-        using namespace transfer::sync;
-        Listing localList = enumerateLocalTree(local);
-        Listing remoteList;
-        if (!engine->listRecursive(remote, &remoteList))
-            return fail("list remote: " + engine->lastError());
-        DirectoryDiffer differ(down ? Direction::RemoteToLocal : Direction::LocalToRemote,
-                               CompareStrategy::MtimeSize, ConflictPolicy::NewerWins,
-                               p.isSet(oDelete));
-        const QVector<SyncAction> actions = differ.diff(localList, remoteList);
-        int changes = 0;
-        for (const auto &a : actions)
-            if (a.type != ActionType::Skip) ++changes;
-        std::fprintf(stderr, "sync: %d change(s)%s\n", changes, p.isSet(oDryRun) ? " (dry-run)" : "");
-        if (p.isSet(oDryRun)) {
-            for (const auto &a : actions)
-                if (a.type != ActionType::Skip)
-                    std::printf("%-14s %s\n", actionName(a.type), a.relativePath.toUtf8().constData());
-            return 0;
-        }
-        SyncCallbacks cb;
-        cb.upload = [&](const QString &rel) {
-            if (!engine->uploadFile(joinPath(local, rel), joinPath(remote, rel)))
-                return false;
-            if (localList.contains(rel)) // preserve mtime so re-sync is a no-op
-                engine->setModifiedTime(joinPath(remote, rel), localList[rel].mtime);
-            return true; };
-        cb.download = [&](const QString &rel) {
-            const QString dst = joinPath(local, rel);
-            QDir().mkpath(QFileInfo(dst).absolutePath());
-            if (!engine->downloadFile(joinPath(remote, rel), dst))
-                return false;
-            if (remoteList.contains(rel))
-                setLocalMtime(dst, remoteList[rel].mtime);
-            return true; };
-        cb.mkdirRemote = [&](const QString &rel) { return engine->makeDirectory(joinPath(remote, rel)); };
-        cb.mkdirLocal = [&](const QString &rel) { return QDir().mkpath(joinPath(local, rel)); };
-        cb.deleteRemote = [&](const QString &rel) { return engine->removeFile(joinPath(remote, rel)); };
-        cb.deleteLocal = [&](const QString &rel) { return QFile::remove(joinPath(local, rel)); };
-        const SyncReport rep = executeSync(actions, cb);
-        std::fprintf(stderr, "uploaded=%d downloaded=%d deleted=%d failed=%d\n",
-                     rep.uploaded, rep.downloaded, rep.deleted, rep.failed);
-        for (const QString &e : rep.errors)
-            std::fprintf(stderr, "  ! %s\n", e.toUtf8().constData());
-        return rep.failed == 0 ? 0 : 1;
+        return runSync(*engine, args[0], args[1], p.isSet(oDown), p.isSet(oDelete), p.isSet(oDryRun));
     }
 
     return fail("unknown command: " + command);

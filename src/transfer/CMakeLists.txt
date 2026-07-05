@@ -17,6 +17,8 @@ add_library(termsync_transfer STATIC
     sync/DirectoryDiffer.cpp
     sync/SyncEngine.h
     sync/SyncEngine.cpp
+    schedule/JobScheduler.h
+    schedule/JobScheduler.cpp
     modem/XYModem.h
     modem/XYModem.cpp
 )
