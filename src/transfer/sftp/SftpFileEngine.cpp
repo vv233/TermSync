@@ -4,7 +4,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMutex>
+#include <atomic>
+#include <cerrno>
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -19,7 +25,10 @@ static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
 #  include <arpa/inet.h>
 #  include <netdb.h>
+#  include <netinet/in.h>
+#  include <netinet/tcp.h>
 #  include <sys/socket.h>
+#  include <sys/select.h>
 #  include <unistd.h>
 using socket_t = int;
 static constexpr socket_t kInvalidSocket = -1;
@@ -73,34 +82,218 @@ bool isSymlink(unsigned long permissions)
     return (permissions & LIBSSH2_SFTP_S_IFMT) == LIBSSH2_SFTP_S_IFLNK;
 }
 
-// libssh2_sftp_read uses buffer_size * 4 for optimistic read-ahead.
-qsizetype transferBufferSize()
+QString libssh2Error(LIBSSH2_SESSION *session, const QString &fallback)
+{
+    char *message = nullptr;
+    int length = 0;
+    const int code = libssh2_session_last_error(session, &message, &length, 0);
+    if (length > 0 && message)
+        return QString::fromUtf8(message, length);
+    if (code)
+        return QStringLiteral("%1 (libssh2 error %2)").arg(fallback).arg(code);
+    return fallback;
+}
+
+bool waitForSocket(LIBSSH2_SESSION *session, socket_t socket, QString *error,
+                   const QString &operation)
+{
+    for (;;) {
+        fd_set readSet;
+        fd_set writeSet;
+        fd_set errorSet;
+        FD_ZERO(&readSet);
+        FD_ZERO(&writeSet);
+        FD_ZERO(&errorSet);
+        FD_SET(socket, &errorSet);
+
+        const int directions = libssh2_session_block_directions(session);
+        if (!directions || (directions & LIBSSH2_SESSION_BLOCK_INBOUND))
+            FD_SET(socket, &readSet);
+        if (!directions || (directions & LIBSSH2_SESSION_BLOCK_OUTBOUND))
+            FD_SET(socket, &writeSet);
+
+        timeval timeout{};
+        timeout.tv_sec = 30;
+        timeout.tv_usec = 0;
+#ifdef _WIN32
+        const int rc = ::select(0, &readSet, &writeSet, &errorSet, &timeout);
+        const int socketError = WSAGetLastError();
+#else
+        const int rc = ::select(socket + 1, &readSet, &writeSet, &errorSet, &timeout);
+        const int socketError = errno;
+#endif
+        if (rc > 0)
+            return true;
+        if (rc == 0) {
+            if (error)
+                *error = QStringLiteral("Timed out while waiting for SFTP %1").arg(operation);
+            return false;
+        }
+#ifndef _WIN32
+        if (socketError == EINTR)
+            continue;
+#endif
+        if (error)
+            *error = QStringLiteral("Socket wait failed during SFTP %1").arg(operation);
+        return false;
+    }
+}
+
+class NonBlockingGuard
+{
+public:
+    explicit NonBlockingGuard(LIBSSH2_SESSION *session, bool enabled)
+        : m_session(session)
+        , m_wasBlocking(session ? libssh2_session_get_blocking(session) : 1)
+        , m_enabled(enabled)
+    {
+        if (m_session && m_enabled)
+            libssh2_session_set_blocking(m_session, 0);
+    }
+
+    ~NonBlockingGuard()
+    {
+        if (m_session && m_enabled)
+            libssh2_session_set_blocking(m_session, m_wasBlocking);
+    }
+
+private:
+    LIBSSH2_SESSION *m_session = nullptr;
+    int m_wasBlocking = 1;
+    bool m_enabled = false;
+};
+
+LIBSSH2_SFTP_HANDLE *openSftpFile(LIBSSH2_SESSION *session, socket_t socket,
+                                  LIBSSH2_SFTP *sftp, const QByteArray &path,
+                                  unsigned long flags, long mode, QString *error,
+                                  const QString &operation)
+{
+    for (;;) {
+        LIBSSH2_SFTP_HANDLE *handle =
+            libssh2_sftp_open(sftp, path.constData(), flags, mode);
+        if (handle)
+            return handle;
+        if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN)
+            break;
+        if (!waitForSocket(session, socket, error, operation))
+            return nullptr;
+    }
+    if (error)
+        *error = libssh2Error(session, QStringLiteral("Could not open SFTP file"));
+    return nullptr;
+}
+
+ssize_t readSftpFile(LIBSSH2_SESSION *session, socket_t socket,
+                     LIBSSH2_SFTP_HANDLE *handle, char *buffer, qsizetype length,
+                     QString *error)
+{
+    for (;;) {
+        const ssize_t rc = libssh2_sftp_read(handle, buffer, static_cast<size_t>(length));
+        if (rc != LIBSSH2_ERROR_EAGAIN)
+            return rc;
+        if (!waitForSocket(session, socket, error, QStringLiteral("read")))
+            return LIBSSH2_ERROR_SOCKET_RECV;
+    }
+}
+
+ssize_t writeSftpFile(LIBSSH2_SESSION *session, socket_t socket,
+                      LIBSSH2_SFTP_HANDLE *handle, const char *buffer,
+                      qsizetype length, QString *error)
+{
+    for (;;) {
+        const ssize_t rc = libssh2_sftp_write(handle, buffer, static_cast<size_t>(length));
+        if (rc > 0)
+            return rc;
+        if (rc < 0 && rc != LIBSSH2_ERROR_EAGAIN)
+            return rc;
+        if (!waitForSocket(session, socket, error, QStringLiteral("write")))
+            return LIBSSH2_ERROR_SOCKET_SEND;
+    }
+}
+
+bool closeSftpFile(LIBSSH2_SESSION *session, socket_t socket,
+                   LIBSSH2_SFTP_HANDLE *handle, QString *error)
+{
+    if (!handle)
+        return true;
+    for (;;) {
+        const int rc = libssh2_sftp_close(handle);
+        if (rc == 0)
+            return true;
+        if (rc != LIBSSH2_ERROR_EAGAIN) {
+            if (error)
+                *error = libssh2Error(session, QStringLiteral("Could not close SFTP file"));
+            return false;
+        }
+        if (!waitForSocket(session, socket, error, QStringLiteral("close")))
+            return false;
+    }
+}
+
+// The transfer buffer size drives libssh2's optimistic SFTP pipeline. Reads
+// keep roughly buffer_size * 4 outstanding FXP_READs, and writes split the
+// supplied buffer into many ~30 KB FXP_WRITEs before waiting for ACKs. libssh2's
+// channel packet default is already 32 KB, matching the fast-client target.
+qsizetype transferBufferSize(const char *specificKey, int defaultKb)
 {
     bool ok = false;
-    int kb = qEnvironmentVariableIntValue("TERMSYNC_SFTP_BUFFER_KB", &ok);
+    int kb = specificKey ? qEnvironmentVariableIntValue(specificKey, &ok) : 0;
     if (!ok)
-        kb = 256;
-    kb = std::clamp(kb, 32, 4096);
+        kb = qEnvironmentVariableIntValue("TERMSYNC_SFTP_BUFFER_KB", &ok);
+    if (!ok)
+        kb = defaultKb;
+    kb = std::clamp(kb, 64, 16384);
     return static_cast<qsizetype>(kb) * 1024;
 }
 
-constexpr quint64 kParallelTransferThreshold = 64ull * 1024ull * 1024ull;
+qsizetype downloadBufferSize()
+{
+    return transferBufferSize("TERMSYNC_SFTP_DOWNLOAD_BUFFER_KB", 1024);
+}
+
+qsizetype uploadBufferSize()
+{
+    return transferBufferSize("TERMSYNC_SFTP_UPLOAD_BUFFER_KB", 1024);
+}
+
+bool useNonblockingPump()
+{
+    bool ok = false;
+    const int enabled = qEnvironmentVariableIntValue("TERMSYNC_SFTP_NONBLOCK", &ok);
+    return ok && enabled != 0;
+}
+
+// Files at least this large use multiple parallel connections. Lowered so
+// medium files also benefit; tune with TERMSYNC_SFTP_PARALLEL / _THRESHOLD_MB.
+quint64 parallelTransferThreshold()
+{
+    bool ok = false;
+    int mb = qEnvironmentVariableIntValue("TERMSYNC_SFTP_THRESHOLD_MB", &ok);
+    if (!ok)
+        mb = 16;
+    return static_cast<quint64>(std::clamp(mb, 1, 4096)) * 1024ull * 1024ull;
+}
 
 bool isCancelled(const std::atomic<bool> *cancel, const std::atomic<bool> *stop = nullptr)
 {
     return (cancel && cancel->load()) || (stop && stop->load());
 }
 
-int parallelTransferCount(quint64 bytes)
+// Number of parallel connections, scaled by file size (~one worker per 32 MB)
+// and capped. More connections hide latency and work around per-connection
+// server throughput caps — the main reason multi-connection clients feel fast.
+int parallelTransferCount(quint64 bytes, bool upload)
 {
     bool ok = false;
     int configured = qEnvironmentVariableIntValue("TERMSYNC_SFTP_PARALLEL", &ok);
     if (ok)
         return std::clamp(configured, 1, 16);
 
-    Q_UNUSED(bytes);
-    const int hardware = static_cast<int>((std::max)(1u, std::thread::hardware_concurrency()));
-    return (std::min)(4, hardware);
+    const quint64 perWorker = 32ull * 1024ull * 1024ull;
+    int bySize = static_cast<int>((bytes + perWorker - 1) / perWorker);
+    // 5 GB tuning on OpenSSH/WSL: uploads need more lanes to clear 100 MiB/s,
+    // while downloads become less stable past six lanes.
+    return std::clamp(bySize, 1, upload ? 8 : 6);
 }
 
 quint64 progressStep(quint64 total)
@@ -138,6 +331,244 @@ void reportProgress(quint64 current, quint64 total, SftpFileEngine::ProgressFn p
     progress(current, total ? total : current);
 }
 
+// Depth of the disk<->network buffer hand-off. >=2 means the disk side and the
+// network side each always have a buffer to work on, so local I/O overlaps the
+// SSH pipe instead of stalling it. Env-tunable for benchmarking.
+int transferPipeDepth()
+{
+    bool ok = false;
+    const int d = qEnvironmentVariableIntValue("TERMSYNC_SFTP_PIPE_DEPTH", &ok);
+    return ok ? std::clamp(d, 2, 64) : 4;
+}
+
+// A bounded FIFO hand-off of buffers between exactly one producer thread and one
+// consumer thread. The point is to keep disk I/O and network I/O running at the
+// same time: the network thread never blocks on the disk (and vice versa) as
+// long as the pipe has a spare buffer. Either side can raise fail() to abort the
+// other. Buffers move by value (QByteArray is cheap to move).
+class BufferPipe
+{
+public:
+    explicit BufferPipe(int depth) : m_depth(depth) {}
+
+    // Producer: wait for room, then enqueue. Returns false if the consumer aborted.
+    bool push(QByteArray buffer)
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_notFull.wait(lock, [this] {
+            return m_failed || static_cast<int>(m_queue.size()) < m_depth;
+        });
+        if (m_failed)
+            return false;
+        m_queue.push_back(std::move(buffer));
+        m_notEmpty.notify_one();
+        return true;
+    }
+
+    // Producer: signal that no more buffers will arrive.
+    void close()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_closed = true;
+        m_notEmpty.notify_all();
+    }
+
+    // Consumer: wait for a buffer. Returns false when drained-and-closed or aborted.
+    bool pop(QByteArray *out)
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_notEmpty.wait(lock, [this] {
+            return m_failed || !m_queue.empty() || m_closed;
+        });
+        if (m_failed || m_queue.empty())
+            return false;
+        *out = std::move(m_queue.front());
+        m_queue.pop_front();
+        m_notFull.notify_one();
+        return true;
+    }
+
+    // Either side aborts; wakes the other out of any wait.
+    void fail()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_failed = true;
+        m_notEmpty.notify_all();
+        m_notFull.notify_all();
+    }
+
+private:
+    std::mutex m_mutex;
+    std::condition_variable m_notFull;
+    std::condition_variable m_notEmpty;
+    std::deque<QByteArray> m_queue;
+    const int m_depth;
+    bool m_closed = false;
+    bool m_failed = false;
+};
+
+// Double-buffered SFTP->local copy. This (network) thread issues the FXP_READs;
+// a spawned disk thread drains filled buffers to `local`, so the file write of
+// one chunk overlaps the network read of the next. length==0 reads to EOF (whole
+// file); otherwise exactly `length` bytes. onBytes(delta) runs on this thread as
+// data arrives, for progress. `context` is the remote path, used in messages.
+bool downloadPump(LIBSSH2_SESSION *session, socket_t socket,
+                  LIBSSH2_SFTP_HANDLE *handle, QFile *local, quint64 length,
+                  qsizetype bufferSize, const std::function<void(quint64)> &onBytes,
+                  const std::atomic<bool> *cancel, const std::atomic<bool> *stop,
+                  QString *error, const QString &context)
+{
+    BufferPipe pipe(transferPipeDepth());
+    std::atomic<bool> diskOk{true};
+    QString diskError;
+    std::thread disk([&] {
+        QByteArray buffer;
+        while (pipe.pop(&buffer)) {
+            if (local->write(buffer.constData(), buffer.size()) != buffer.size()) {
+                diskError = local->errorString();
+                diskOk.store(false);
+                pipe.fail();
+                return;
+            }
+        }
+    });
+
+    bool ok = true;
+    const bool bounded = length != 0;
+    quint64 remaining = length;
+    for (;;) {
+        if (isCancelled(cancel, stop)) {
+            if (error)
+                *error = QStringLiteral("Cancelled");
+            ok = false;
+            break;
+        }
+        if (bounded && remaining == 0)
+            break;
+        qsizetype want = bufferSize;
+        if (bounded)
+            want = static_cast<qsizetype>(qMin<quint64>(bufferSize, remaining));
+        QByteArray buffer(want, Qt::Uninitialized);
+        QString ioError;
+        const ssize_t rc =
+            readSftpFile(session, socket, handle, buffer.data(), want, &ioError);
+        if (rc > 0) {
+            buffer.truncate(rc);
+            onBytes(static_cast<quint64>(rc));
+            if (bounded)
+                remaining -= static_cast<quint64>(rc);
+            if (!pipe.push(std::move(buffer))) { // disk aborted
+                ok = false;
+                break;
+            }
+            continue;
+        }
+        if (rc == 0) {
+            if (bounded) {
+                if (error)
+                    *error = QStringLiteral("Unexpected EOF while downloading: %1").arg(context);
+                ok = false;
+            }
+            break; // EOF: expected for whole-file
+        }
+        if (error)
+            *error = QStringLiteral("Failed while downloading: %1 (%2)")
+                         .arg(context, ioError.isEmpty()
+                                           ? libssh2Error(session, QStringLiteral("read failed"))
+                                           : ioError);
+        ok = false;
+        break;
+    }
+
+    if (ok)
+        pipe.close(); // let the disk thread drain the remaining queued buffers
+    else
+        pipe.fail(); // abort: drop the queue and unblock the disk thread
+    disk.join();
+    if (!diskOk.load()) {
+        if (error)
+            *error = diskError;
+        return false;
+    }
+    return ok;
+}
+
+// Double-buffered local->SFTP copy. A spawned disk thread reads `local` into
+// buffers; this (network) thread drains them with FXP_WRITE, so the disk read of
+// one chunk overlaps the network send of the previous. Copies exactly `length`
+// bytes from the file's current position. onBytes(delta) runs here for progress.
+bool uploadPump(LIBSSH2_SESSION *session, socket_t socket,
+                LIBSSH2_SFTP_HANDLE *handle, QFile *local, quint64 length,
+                qsizetype bufferSize, const std::function<void(quint64)> &onBytes,
+                const std::atomic<bool> *cancel, const std::atomic<bool> *stop,
+                QString *error, const QString &context)
+{
+    BufferPipe pipe(transferPipeDepth());
+    std::atomic<bool> diskOk{true};
+    QString diskError;
+    std::thread disk([&] {
+        quint64 remaining = length;
+        while (remaining > 0) {
+            const qint64 want = static_cast<qint64>(
+                qMin<quint64>(static_cast<quint64>(bufferSize), remaining));
+            QByteArray buffer = local->read(want);
+            if (buffer.size() != want) {
+                diskError = QStringLiteral("Unexpected EOF while uploading: %1").arg(context);
+                diskOk.store(false);
+                pipe.fail();
+                return;
+            }
+            remaining -= static_cast<quint64>(buffer.size());
+            if (!pipe.push(std::move(buffer))) // network aborted
+                return;
+        }
+        pipe.close();
+    });
+
+    bool ok = true;
+    for (;;) {
+        QByteArray buffer;
+        if (!pipe.pop(&buffer))
+            break; // drained-and-closed, or disk aborted
+        if (isCancelled(cancel, stop)) {
+            if (error)
+                *error = QStringLiteral("Cancelled");
+            ok = false;
+            break;
+        }
+        const char *ptr = buffer.constData();
+        qsizetype chunkRemaining = buffer.size();
+        while (chunkRemaining > 0) {
+            QString ioError;
+            const ssize_t written =
+                writeSftpFile(session, socket, handle, ptr, chunkRemaining, &ioError);
+            if (written < 0) {
+                if (error)
+                    *error = QStringLiteral("Failed while uploading: %1 (%2)")
+                                 .arg(context, ioError.isEmpty()
+                                                   ? libssh2Error(session, QStringLiteral("write failed"))
+                                                   : ioError);
+                ok = false;
+                break;
+            }
+            ptr += written;
+            chunkRemaining -= written;
+            onBytes(static_cast<quint64>(written));
+        }
+        if (!ok)
+            break;
+    }
+
+    pipe.fail(); // unblock the disk thread whether we finished or aborted
+    disk.join();
+    if (ok && !diskOk.load()) {
+        if (error)
+            *error = diskError;
+        return false;
+    }
+    return ok;
+}
+
 } // namespace
 
 SftpFileEngine::SftpFileEngine()
@@ -167,6 +598,24 @@ bool SftpFileEngine::connectToHost(const core::SshConnectionParams &params,
     }
     m_session = session;
     libssh2_session_set_blocking(session, 1);
+
+    // Bias the KEX toward fast, AES-NI-friendly transport before the handshake.
+    // SFTP throughput on a fast link is CPU-bound on the cipher/MAC, so we offer
+    // AEAD (aes-gcm, no separate MAC pass) first, then aes-ctr, and keep cbc as a
+    // last-resort fallback so we never fail to negotiate with an older server.
+    // Order is client preference; libssh2 picks the first that the server also
+    // supports. Compression is forced off (it only helps for text and otherwise
+    // burns CPU that would cap the transfer). Overridable via env for debugging.
+    if (!qEnvironmentVariableIsSet("TERMSYNC_SFTP_NO_CRYPTO_PREF")) {
+        const char *ciphers =
+            "aes128-gcm@openssh.com,aes256-gcm@openssh.com,"
+            "aes128-ctr,aes192-ctr,aes256-ctr,"
+            "aes128-cbc,aes256-cbc,3des-cbc";
+        libssh2_session_method_pref(session, LIBSSH2_METHOD_CRYPT_CS, ciphers);
+        libssh2_session_method_pref(session, LIBSSH2_METHOD_CRYPT_SC, ciphers);
+        libssh2_session_method_pref(session, LIBSSH2_METHOD_COMP_CS, "none");
+        libssh2_session_method_pref(session, LIBSSH2_METHOD_COMP_SC, "none");
+    }
 
     if (libssh2_session_handshake(session, static_cast<libssh2_socket_t>(storedSocket(m_socket)))) {
         setError(QStringLiteral("SSH handshake failed"));
@@ -274,6 +723,7 @@ bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &loca
                                   ProgressFn progress, const std::atomic<bool> *cancel)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
     if (!sftp) {
         setError(QStringLiteral("SFTP is not connected"));
         return false;
@@ -281,7 +731,7 @@ bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &loca
 
     quint64 total = 0;
     statSize(remotePath, &total); // best-effort, for progress reporting
-    if (total >= kParallelTransferThreshold && !m_params.host.isEmpty()) {
+    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty()) {
         if (downloadFileParallel(remotePath, localPath, total, progress, cancel))
             return true;
         return false;
@@ -295,53 +745,47 @@ bool SftpFileEngine::downloadFileSequential(const QString &remotePath, const QSt
                                             const std::atomic<bool> *cancel)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
     if (!sftp) {
         setError(QStringLiteral("SFTP is not connected"));
         return false;
     }
+    NonBlockingGuard nonblocking(session, useNonblockingPump());
     const QByteArray remote = remotePath.toUtf8();
-    LIBSSH2_SFTP_HANDLE *remoteFile =
-        libssh2_sftp_open(sftp, remote.constData(), LIBSSH2_FXF_READ, 0);
+    QString ioError;
+    LIBSSH2_SFTP_HANDLE *remoteFile = openSftpFile(
+        session, storedSocket(m_socket), sftp, remote, LIBSSH2_FXF_READ, 0, &ioError,
+        QStringLiteral("open for read"));
     if (!remoteFile) {
-        setError(QStringLiteral("Could not open remote file: %1").arg(remotePath));
+        setError(QStringLiteral("Could not open remote file: %1 (%2)")
+                     .arg(remotePath, ioError));
         return false;
     }
 
     QFile local(localPath);
     if (!local.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        libssh2_sftp_close(remoteFile);
+        closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
         setError(local.errorString());
         return false;
     }
 
     quint64 done = 0;
     quint64 reported = 0;
-    QByteArray buffer(transferBufferSize(), Qt::Uninitialized);
-    for (;;) {
-        if (isCancelled(cancel)) {
-            libssh2_sftp_close(remoteFile);
-            setError(QStringLiteral("Cancelled"));
-            return false;
-        }
-        const ssize_t rc = libssh2_sftp_read(remoteFile, buffer.data(), buffer.size());
-        if (rc > 0) {
-            if (local.write(buffer.constData(), rc) != rc) {
-                libssh2_sftp_close(remoteFile);
-                setError(local.errorString());
-                return false;
-            }
-            done += static_cast<quint64>(rc);
-            reportProgress(done, total, progress, &reported);
-            continue;
-        }
-        if (rc == 0)
-            break;
-        libssh2_sftp_close(remoteFile);
-        setError(QStringLiteral("Failed while downloading: %1").arg(remotePath));
+    const bool ok = downloadPump(
+        session, storedSocket(m_socket), remoteFile, &local, /*length=*/0,
+        downloadBufferSize(),
+        [&](quint64 delta) { done += delta; reportProgress(done, total, progress, &reported); },
+        cancel, nullptr, &ioError, remotePath);
+    if (!ok) {
+        closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+        setError(ioError);
         return false;
     }
 
-    libssh2_sftp_close(remoteFile);
+    if (!closeSftpFile(session, storedSocket(m_socket), remoteFile, &ioError)) {
+        setError(ioError);
+        return false;
+    }
     reportProgress(done, total ? total : done, progress, &reported);
     return true;
 }
@@ -363,7 +807,7 @@ bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remoteP
     const quint64 total = static_cast<quint64>(local.size());
     local.close();
 
-    if (total >= kParallelTransferThreshold && !m_params.host.isEmpty()) {
+    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty()) {
         if (uploadFileParallel(localPath, remotePath, total, progress, cancel))
             return true;
         return false;
@@ -377,6 +821,7 @@ bool SftpFileEngine::uploadFileSequential(const QString &localPath, const QStrin
                                           const std::atomic<bool> *cancel)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
     if (!sftp) {
         setError(QStringLiteral("SFTP is not connected"));
         return false;
@@ -388,42 +833,36 @@ bool SftpFileEngine::uploadFileSequential(const QString &localPath, const QStrin
         return false;
     }
     const QByteArray remote = remotePath.toUtf8();
-    LIBSSH2_SFTP_HANDLE *remoteFile = libssh2_sftp_open(
-        sftp, remote.constData(),
+    NonBlockingGuard nonblocking(session, useNonblockingPump());
+    QString ioError;
+    LIBSSH2_SFTP_HANDLE *remoteFile = openSftpFile(
+        session, storedSocket(m_socket), sftp, remote,
         LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
         LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
-            LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);
+            LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH,
+        &ioError, QStringLiteral("open for write"));
     if (!remoteFile) {
-        setError(QStringLiteral("Could not open remote file for writing: %1").arg(remotePath));
+        setError(QStringLiteral("Could not open remote file for writing: %1 (%2)")
+                     .arg(remotePath, ioError));
         return false;
     }
 
     quint64 done = 0;
     quint64 reported = 0;
-    while (!local.atEnd()) {
-        if (isCancelled(cancel)) {
-            libssh2_sftp_close(remoteFile);
-            setError(QStringLiteral("Cancelled"));
-            return false;
-        }
-        const QByteArray chunk = local.read(transferBufferSize());
-        const char *ptr = chunk.constData();
-        qsizetype remaining = chunk.size();
-        while (remaining > 0) {
-            const ssize_t written = libssh2_sftp_write(remoteFile, ptr, remaining);
-            if (written < 0) {
-                libssh2_sftp_close(remoteFile);
-                setError(QStringLiteral("Failed while uploading: %1").arg(remotePath));
-                return false;
-            }
-            ptr += written;
-            remaining -= written;
-            done += static_cast<quint64>(written);
-        }
-        reportProgress(done, total, progress, &reported);
+    const bool ok = uploadPump(
+        session, storedSocket(m_socket), remoteFile, &local, total, uploadBufferSize(),
+        [&](quint64 delta) { done += delta; reportProgress(done, total, progress, &reported); },
+        cancel, nullptr, &ioError, remotePath);
+    if (!ok) {
+        closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+        setError(ioError);
+        return false;
     }
 
-    libssh2_sftp_close(remoteFile);
+    if (!closeSftpFile(session, storedSocket(m_socket), remoteFile, &ioError)) {
+        setError(ioError);
+        return false;
+    }
     reportProgress(done, total, progress, &reported);
     return true;
 }
@@ -432,7 +871,7 @@ bool SftpFileEngine::downloadFileParallel(const QString &remotePath, const QStri
                                           quint64 total, ProgressFn progress,
                                           const std::atomic<bool> *cancel)
 {
-    const int workers = parallelTransferCount(total);
+    const int workers = parallelTransferCount(total, false);
     if (workers <= 1)
         return downloadFileSequential(remotePath, localPath, total, progress, cancel);
 
@@ -501,7 +940,7 @@ bool SftpFileEngine::uploadFileParallel(const QString &localPath, const QString 
                                         quint64 total, ProgressFn progress,
                                         const std::atomic<bool> *cancel)
 {
-    const int workers = parallelTransferCount(total);
+    const int workers = parallelTransferCount(total, true);
     if (workers <= 1)
         return uploadFileSequential(localPath, remotePath, total, progress, cancel);
 
@@ -587,57 +1026,49 @@ bool SftpFileEngine::downloadRange(const QString &remotePath, const QString &loc
                                    const std::atomic<bool> *stop)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
     if (!sftp) {
         setError(QStringLiteral("SFTP is not connected"));
         return false;
     }
 
     const QByteArray remote = remotePath.toUtf8();
-    LIBSSH2_SFTP_HANDLE *remoteFile =
-        libssh2_sftp_open(sftp, remote.constData(), LIBSSH2_FXF_READ, 0);
+    NonBlockingGuard nonblocking(session, useNonblockingPump());
+    QString ioError;
+    LIBSSH2_SFTP_HANDLE *remoteFile = openSftpFile(
+        session, storedSocket(m_socket), sftp, remote, LIBSSH2_FXF_READ, 0, &ioError,
+        QStringLiteral("open range for read"));
     if (!remoteFile) {
-        setError(QStringLiteral("Could not open remote file: %1").arg(remotePath));
+        setError(QStringLiteral("Could not open remote file: %1 (%2)")
+                     .arg(remotePath, ioError));
         return false;
     }
     libssh2_sftp_seek64(remoteFile, static_cast<libssh2_uint64_t>(offset));
 
     QFile local(localPath);
     if (!local.open(QIODevice::ReadWrite) || !local.seek(static_cast<qint64>(offset))) {
-        libssh2_sftp_close(remoteFile);
+        closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
         setError(local.errorString());
         return false;
     }
 
-    QByteArray buffer(transferBufferSize(), Qt::Uninitialized);
-    quint64 remaining = length;
-    while (remaining > 0) {
-        if (isCancelled(cancel, stop)) {
-            libssh2_sftp_close(remoteFile);
-            setError(QStringLiteral("Cancelled"));
-            return false;
-        }
-        const qsizetype want = static_cast<qsizetype>(
-            qMin<quint64>(static_cast<quint64>(buffer.size()), remaining));
-        const ssize_t rc = libssh2_sftp_read(remoteFile, buffer.data(), want);
-        if (rc > 0) {
-            if (local.write(buffer.constData(), rc) != rc) {
-                libssh2_sftp_close(remoteFile);
-                setError(local.errorString());
-                return false;
-            }
-            remaining -= static_cast<quint64>(rc);
-            const quint64 current = done->fetch_add(static_cast<quint64>(rc)) +
-                                    static_cast<quint64>(rc);
+    const bool ok = downloadPump(
+        session, storedSocket(m_socket), remoteFile, &local, length, downloadBufferSize(),
+        [&](quint64 delta) {
+            const quint64 current = done->fetch_add(delta) + delta;
             reportProgress(qMin(current, total), total, progress, reported);
-            continue;
-        }
-        libssh2_sftp_close(remoteFile);
-        setError(rc == 0 ? QStringLiteral("Unexpected EOF while downloading: %1").arg(remotePath)
-                         : QStringLiteral("Failed while downloading: %1").arg(remotePath));
+        },
+        cancel, stop, &ioError, remotePath);
+    if (!ok) {
+        closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+        setError(ioError);
         return false;
     }
 
-    libssh2_sftp_close(remoteFile);
+    if (!closeSftpFile(session, storedSocket(m_socket), remoteFile, &ioError)) {
+        setError(ioError);
+        return false;
+    }
     return true;
 }
 
@@ -649,6 +1080,7 @@ bool SftpFileEngine::uploadRange(const QString &localPath, const QString &remote
                                  const std::atomic<bool> *stop)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
     if (!sftp) {
         setError(QStringLiteral("SFTP is not connected"));
         return false;
@@ -661,48 +1093,35 @@ bool SftpFileEngine::uploadRange(const QString &localPath, const QString &remote
     }
 
     const QByteArray remote = remotePath.toUtf8();
-    LIBSSH2_SFTP_HANDLE *remoteFile =
-        libssh2_sftp_open(sftp, remote.constData(), LIBSSH2_FXF_WRITE, 0);
+    NonBlockingGuard nonblocking(session, useNonblockingPump());
+    QString ioError;
+    LIBSSH2_SFTP_HANDLE *remoteFile = openSftpFile(
+        session, storedSocket(m_socket), sftp, remote, LIBSSH2_FXF_WRITE, 0, &ioError,
+        QStringLiteral("open range for write"));
     if (!remoteFile) {
-        setError(QStringLiteral("Could not open remote file for writing: %1").arg(remotePath));
+        setError(QStringLiteral("Could not open remote file for writing: %1 (%2)")
+                     .arg(remotePath, ioError));
         return false;
     }
     libssh2_sftp_seek64(remoteFile, static_cast<libssh2_uint64_t>(offset));
 
-    quint64 remaining = length;
-    while (remaining > 0) {
-        if (isCancelled(cancel, stop)) {
-            libssh2_sftp_close(remoteFile);
-            setError(QStringLiteral("Cancelled"));
-            return false;
-        }
-        const qint64 want = static_cast<qint64>(
-            qMin<quint64>(static_cast<quint64>(transferBufferSize()), remaining));
-        const QByteArray chunk = local.read(want);
-        if (chunk.isEmpty()) {
-            libssh2_sftp_close(remoteFile);
-            setError(QStringLiteral("Unexpected EOF while uploading: %1").arg(localPath));
-            return false;
-        }
-        const char *ptr = chunk.constData();
-        qsizetype chunkRemaining = chunk.size();
-        while (chunkRemaining > 0) {
-            const ssize_t written = libssh2_sftp_write(remoteFile, ptr, chunkRemaining);
-            if (written < 0) {
-                libssh2_sftp_close(remoteFile);
-                setError(QStringLiteral("Failed while uploading: %1").arg(remotePath));
-                return false;
-            }
-            ptr += written;
-            chunkRemaining -= written;
-            remaining -= static_cast<quint64>(written);
-            const quint64 current = done->fetch_add(static_cast<quint64>(written)) +
-                                    static_cast<quint64>(written);
+    const bool ok = uploadPump(
+        session, storedSocket(m_socket), remoteFile, &local, length, uploadBufferSize(),
+        [&](quint64 delta) {
+            const quint64 current = done->fetch_add(delta) + delta;
             reportProgress(qMin(current, total), total, progress, reported);
-        }
+        },
+        cancel, stop, &ioError, remotePath);
+    if (!ok) {
+        closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
+        setError(ioError);
+        return false;
     }
 
-    libssh2_sftp_close(remoteFile);
+    if (!closeSftpFile(session, storedSocket(m_socket), remoteFile, &ioError)) {
+        setError(ioError);
+        return false;
+    }
     return true;
 }
 
@@ -829,6 +1248,17 @@ bool SftpFileEngine::openSocket(const QString &hostName, quint16 portNumber)
         setError(QStringLiteral("Could not connect to %1:%2").arg(hostName).arg(portNumber));
         return false;
     }
+    // Disable Nagle so small SFTP request packets aren't delayed, and enlarge
+    // the socket receive buffer so the kernel can keep the pipeline full.
+    int one = 1;
+    ::setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
+                 reinterpret_cast<const char *>(&one), sizeof(one));
+    int rcvbuf = 4 * 1024 * 1024;
+    ::setsockopt(sock, SOL_SOCKET, SO_RCVBUF,
+                 reinterpret_cast<const char *>(&rcvbuf), sizeof(rcvbuf));
+    int sndbuf = 4 * 1024 * 1024;
+    ::setsockopt(sock, SOL_SOCKET, SO_SNDBUF,
+                 reinterpret_cast<const char *>(&sndbuf), sizeof(sndbuf));
     m_socket = static_cast<quintptr>(sock);
     return true;
 }
