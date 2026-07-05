@@ -1,5 +1,9 @@
 #include "transfer_view/DualPaneBrowser.h"
 
+#include "sync/DirectoryDiffer.h"
+#include "sync/SyncEngine.h"
+#include "transfer_view/SynchronizeDialog.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -62,6 +66,8 @@ DualPaneBrowser::DualPaneBrowser(const core::SshConnectionParams &params,
             &DualPaneBrowser::onTransferProgress);
     connect(m_session, &transfer::SftpSession::transferFinished, this,
             &DualPaneBrowser::onTransferFinished);
+    connect(m_session, &transfer::SftpSession::syncListingReady, this,
+            &DualPaneBrowser::onSyncListingReady);
 
     auto *panes = new QSplitter(Qt::Horizontal, this);
     panes->addWidget(buildLocalPane());
@@ -169,9 +175,12 @@ QWidget *DualPaneBrowser::buildRemotePane()
     connect(up, &QToolButton::clicked, this, &DualPaneBrowser::remoteGoUp);
     auto *downloadBtn = new QPushButton(tr("← Download"));
     connect(downloadBtn, &QPushButton::clicked, this, &DualPaneBrowser::downloadSelected);
+    auto *syncBtn = new QPushButton(tr("Synchronize..."));
+    connect(syncBtn, &QPushButton::clicked, this, &DualPaneBrowser::onSyncClicked);
     m_remotePathEdit = new QLineEdit;
     m_remotePathEdit->setReadOnly(true);
     bar->addWidget(downloadBtn);
+    bar->addWidget(syncBtn);
     bar->addWidget(new QLabel(tr("Remote:")));
     bar->addWidget(m_remotePathEdit, 1);
     bar->addWidget(up);
@@ -380,6 +389,91 @@ void DualPaneBrowser::remoteContextMenu(const QPoint &pos)
             m_session->renameEntry(remoteJoin(m_remotePath, e.name),
                                    remoteJoin(m_remotePath, name));
     }
+}
+
+void DualPaneBrowser::onSyncClicked()
+{
+    emit statusMessage(tr("Scanning remote tree for synchronization..."));
+    m_syncPending = true;
+    m_session->requestSyncListing(m_remotePath);
+}
+
+void DualPaneBrowser::onSyncListingReady(const QString &,
+                                         const transfer::sync::Listing &remote,
+                                         bool ok)
+{
+    if (!m_syncPending)
+        return;
+    m_syncPending = false;
+    if (!ok) {
+        emit statusMessage(tr("Synchronize: could not scan the remote tree"));
+        return;
+    }
+
+    const QString localDir = m_localPathEdit->text();
+    const QString remoteDir = m_remotePath;
+    const transfer::sync::Listing local =
+        transfer::sync::enumerateLocalTree(localDir);
+    // Capture the two listings so the dialog can recompute per direction.
+    const transfer::sync::Listing remoteCopy = remote;
+
+    auto compute = [local, remoteCopy](transfer::sync::Direction dir) {
+        transfer::sync::DirectoryDiffer differ(
+            dir, transfer::sync::CompareStrategy::MtimeSize,
+            transfer::sync::ConflictPolicy::NewerWins, /*deleteOrphans=*/false);
+        return differ.diff(local, remoteCopy);
+    };
+
+    auto execute = [this, localDir, remoteDir](
+                       const QVector<transfer::sync::SyncAction> &actions) {
+        using transfer::sync::ActionType;
+        int queued = 0;
+        for (const auto &a : actions) {
+            const QString localPath = QDir(localDir).filePath(a.relativePath);
+            const QString remotePath = remoteJoin(remoteDir, a.relativePath);
+            switch (a.type) {
+            case ActionType::Upload: {
+                transfer::TransferItem item;
+                item.direction = transfer::TransferItem::Upload;
+                item.localPath = localPath;
+                item.remotePath = remotePath;
+                item.displayName = a.relativePath;
+                m_session->enqueue(item);
+                ++queued;
+                break;
+            }
+            case ActionType::Download: {
+                QDir().mkpath(QFileInfo(localPath).absolutePath());
+                transfer::TransferItem item;
+                item.direction = transfer::TransferItem::Download;
+                item.localPath = localPath;
+                item.remotePath = remotePath;
+                item.displayName = a.relativePath;
+                m_session->enqueue(item);
+                ++queued;
+                break;
+            }
+            case ActionType::MakeRemoteDir:
+                m_session->makeDirectory(remotePath);
+                break;
+            case ActionType::MakeLocalDir:
+                QDir().mkpath(localPath);
+                break;
+            case ActionType::DeleteRemote:
+                m_session->removeEntry(remotePath, /*isDir=*/false);
+                break;
+            case ActionType::DeleteLocal:
+                QFile::remove(localPath);
+                break;
+            default:
+                break;
+            }
+        }
+        emit statusMessage(tr("Synchronize: queued %1 transfer(s)").arg(queued));
+    };
+
+    SynchronizeDialog dialog(localDir, remoteDir, compute, execute, this);
+    dialog.exec();
 }
 
 void DualPaneBrowser::onOperationFinished(const QString &op, bool ok,

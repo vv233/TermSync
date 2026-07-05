@@ -7,6 +7,7 @@
 #include <functional>
 
 #include "ssh/SshConnection.h"
+#include "sync/SyncTypes.h"
 
 namespace termsync::transfer {
 
@@ -61,6 +62,42 @@ public:
     // No-op / unsupported returns false; callers treat that as non-fatal.
     virtual bool setPermissions(const QString &remotePath, quint32 mode) = 0;
     virtual bool statSize(const QString &remotePath, quint64 *size) = 0;
+
+    // Recursively enumerates the tree under `root` into a sync::Listing keyed by
+    // forward-slash paths relative to `root` (drives the sync engine). Uses the
+    // virtual listDirectory, so it works for any backend. Overridable if a
+    // backend has a faster native walk.
+    virtual bool listRecursive(const QString &root, sync::Listing *out)
+    {
+        if (!out)
+            return false;
+        struct Pending { QString remote; QString relative; };
+        QVector<Pending> stack{{root, QString()}};
+        while (!stack.isEmpty()) {
+            const Pending dir = stack.takeLast();
+            QVector<FileEntry> entries;
+            if (!listDirectory(dir.remote, &entries))
+                return false;
+            for (const FileEntry &e : entries) {
+                if (e.name == "." || e.name == "..")
+                    continue;
+                const QString rel = dir.relative.isEmpty()
+                                        ? e.name
+                                        : dir.relative + '/' + e.name;
+                const QString remote = dir.remote.endsWith('/')
+                                           ? dir.remote + e.name
+                                           : dir.remote + '/' + e.name;
+                sync::SyncEntry se;
+                se.isDir = e.isDirectory;
+                se.size = e.size;
+                se.mtime = e.modifiedAt.toSecsSinceEpoch();
+                out->insert(rel, se);
+                if (e.isDirectory && !e.isSymlink)
+                    stack.push_back({remote, rel});
+            }
+        }
+        return true;
+    }
 };
 
 } // namespace termsync::transfer

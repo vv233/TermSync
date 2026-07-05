@@ -89,6 +89,13 @@ public slots:
                                ok ? path : m_engine->lastError());
     }
 
+    void doSyncListing(const QString &root)
+    {
+        sync::Listing listing;
+        const bool ok = m_engine->listRecursive(root, &listing);
+        emit syncListingReady(root, listing, ok);
+    }
+
     void enqueue(const TransferItem &item)
     {
         {
@@ -162,6 +169,7 @@ signals:
     void operationFinished(const QString &op, bool ok, const QString &message);
     void transferProgress(int id, quint64 done, quint64 total);
     void transferFinished(int id, bool ok, const QString &message);
+    void syncListingReady(const QString &root, const sync::Listing &listing, bool ok);
 
 private:
     core::SshConnectionParams m_params;
@@ -188,6 +196,7 @@ SftpSession::SftpSession(const core::SshConnectionParams &params,
     qRegisterMetaType<termsync::transfer::TransferItem>();
     qRegisterMetaType<termsync::transfer::SftpEntry>();
     qRegisterMetaType<QVector<termsync::transfer::SftpEntry>>();
+    qRegisterMetaType<termsync::transfer::sync::Listing>();
 
     m_thread = new QThread(this);
     m_worker = new SftpWorker(params, expectedFingerprint, protocol);
@@ -206,6 +215,8 @@ SftpSession::SftpSession(const core::SshConnectionParams &params,
             &SftpSession::transferProgress);
     connect(m_worker, &SftpWorker::transferFinished, this,
             &SftpSession::transferFinished);
+    connect(m_worker, &SftpWorker::syncListingReady, this,
+            &SftpSession::syncListingReady);
 
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     m_thread->start();
@@ -271,6 +282,12 @@ void SftpSession::cancel(int id)
 void SftpSession::cancelAll()
 {
     QMetaObject::invokeMethod(m_worker, "cancelAll", Qt::QueuedConnection);
+}
+
+void SftpSession::requestSyncListing(const QString &root)
+{
+    QMetaObject::invokeMethod(m_worker, "doSyncListing", Qt::QueuedConnection,
+                              Q_ARG(QString, root));
 }
 
 } // namespace termsync::transfer

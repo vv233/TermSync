@@ -41,6 +41,9 @@ private slots:
     void onTransferQueued(const transfer::TransferItem &item);
     void onTransferProgress(int id, quint64 done, quint64 total);
     void onTransferFinished(int id, bool ok, const QString &message);
+    void onSyncClicked();
+    void onSyncListingReady(const QString &root,
+                            const transfer::sync::Listing &listing, bool ok);
 
     void onLocalActivated(const QModelIndex &index);
     void onRemoteActivated(int row, int column);
@@ -72,6 +75,8 @@ private:
 
     QTableWidget *m_queueTable = nullptr;
     QHash<int, int> m_taskRow; // transfer id -> queue table row
+
+    bool m_syncPending = false; // awaiting a recursive listing for Synchronize
 };
 
 } // namespace termsync::ui

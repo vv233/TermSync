@@ -8,6 +8,7 @@
 #include "FileEngine.h"
 #include "model/ConnectionProfile.h"
 #include "ssh/SshConnection.h"
+#include "sync/SyncTypes.h"
 
 class QThread;
 
@@ -61,6 +62,9 @@ public slots:
     void changePermissions(const QString &path, quint32 mode);
     void cancel(int id);
     void cancelAll();
+    // Recursively enumerates a remote tree for the sync engine; the result
+    // arrives via syncListingReady.
+    void requestSyncListing(const QString &root);
 
 signals:
     void connected();
@@ -71,6 +75,7 @@ signals:
     void transferQueued(const TransferItem &item);
     void transferProgress(int id, quint64 done, quint64 total);
     void transferFinished(int id, bool ok, const QString &message);
+    void syncListingReady(const QString &root, const sync::Listing &listing, bool ok);
 
 private:
     QThread *m_thread = nullptr;
@@ -82,3 +87,4 @@ private:
 
 Q_DECLARE_METATYPE(termsync::transfer::TransferItem)
 Q_DECLARE_METATYPE(termsync::transfer::SftpEntry)
+Q_DECLARE_METATYPE(termsync::transfer::sync::Listing)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FileEngine.h"
+#include "sync/SyncTypes.h"
 
 namespace termsync::transfer {
 
@@ -38,6 +39,7 @@ public:
     bool rename(const QString &fromPath, const QString &toPath) override;
     bool setPermissions(const QString &remotePath, quint32 mode) override;
     bool statSize(const QString &remotePath, quint64 *size) override;
+    // listRecursive is inherited from FileEngine (generic walk via listDirectory).
 
     // SCP transfers over the same authenticated session (M12). SCP is a
     // separate wire protocol from SFTP but shares the libssh2 session.
