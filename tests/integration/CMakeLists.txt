@@ -20,6 +20,15 @@ target_link_libraries(sftp_smoke
         Qt6::Core
 )
 
+add_executable(sftp_bench
+    sftp_bench.cpp
+)
+target_link_libraries(sftp_bench
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
 add_executable(credential_smoke
     credential_smoke.cpp
 )

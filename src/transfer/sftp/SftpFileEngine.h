@@ -49,6 +49,32 @@ public:
                    const std::atomic<bool> *cancel = nullptr);
 
 private:
+    bool downloadFileSequential(const QString &remotePath, const QString &localPath,
+                                quint64 total, ProgressFn progress,
+                                const std::atomic<bool> *cancel);
+    bool uploadFileSequential(const QString &localPath, const QString &remotePath,
+                              quint64 total, ProgressFn progress,
+                              const std::atomic<bool> *cancel);
+    bool downloadFileParallel(const QString &remotePath, const QString &localPath,
+                              quint64 total, ProgressFn progress,
+                              const std::atomic<bool> *cancel);
+    bool uploadFileParallel(const QString &localPath, const QString &remotePath,
+                            quint64 total, ProgressFn progress,
+                            const std::atomic<bool> *cancel);
+    bool downloadRange(const QString &remotePath, const QString &localPath,
+                       quint64 offset, quint64 length,
+                       std::atomic<quint64> *done, std::atomic<quint64> *reported,
+                       quint64 total,
+                       ProgressFn progress, const std::atomic<bool> *cancel,
+                       const std::atomic<bool> *stop);
+    bool uploadRange(const QString &localPath, const QString &remotePath,
+                     quint64 offset, quint64 length,
+                     std::atomic<quint64> *done, std::atomic<quint64> *reported,
+                     quint64 total,
+                     ProgressFn progress, const std::atomic<bool> *cancel,
+                     const std::atomic<bool> *stop);
+    bool connectSibling(SftpFileEngine *engine) const;
+
     bool openSocket(const QString &host, quint16 port);
     bool authenticate(const core::SshConnectionParams &params);
     void setError(const QString &message);
@@ -60,6 +86,7 @@ private:
     quintptr m_socket = static_cast<quintptr>(-1);
     QString m_lastError;
     QString m_hostKeyFingerprint;
+    core::SshConnectionParams m_params;
 };
 
 } // namespace termsync::transfer
