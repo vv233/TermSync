@@ -39,3 +39,12 @@ target_link_libraries(terminal_render_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+add_executable(dualpane_render_smoke
+    dualpane_render_smoke.cpp
+)
+target_link_libraries(dualpane_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)

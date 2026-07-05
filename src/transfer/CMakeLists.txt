@@ -6,6 +6,8 @@ find_package(libssh2 CONFIG REQUIRED)
 add_library(termsync_transfer STATIC
     sftp/SftpFileEngine.h
     sftp/SftpFileEngine.cpp
+    queue/SftpSession.h
+    queue/SftpSession.cpp
 )
 
 target_include_directories(termsync_transfer

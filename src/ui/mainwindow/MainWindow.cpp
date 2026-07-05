@@ -20,6 +20,7 @@
 
 #include "session_dialogs/QuickConnectDialog.h"
 #include "terminal_view/TerminalWidget.h"
+#include "transfer_view/DualPaneBrowser.h"
 #include "transfer_view/SftpBrowserWidget.h"
 
 namespace {
@@ -443,14 +444,15 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
 
     const QString host = profile.host;
     const quint16 port = profile.port;
-    auto *view = new SftpBrowserWidget(
-        params,
-        [this, host, port](const QString &fp) {
-            return verifyHostKey(host, port, fp);
-        },
-        this);
+    const QString expectedFp =
+        m_profileStore ? m_profileStore->knownFingerprint(host, port) : QString();
 
-    connect(view, &SftpBrowserWidget::statusMessage, this,
+    auto *view = new DualPaneBrowser(params, expectedFp, this);
+
+    // Trust-on-first-use: persist a newly-seen fingerprint; warn on mismatch.
+    connect(view, &DualPaneBrowser::hostKeyFingerprintReceived, this,
+            [this, host, port](const QString &fp) { verifyHostKey(host, port, fp); });
+    connect(view, &DualPaneBrowser::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 5000); });
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;

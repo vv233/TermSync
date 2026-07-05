@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QString>
 #include <QVector>
+#include <atomic>
 #include <functional>
 
 #include "ssh/SshConnection.h"
@@ -42,9 +43,26 @@ public:
     QString hostKeyFingerprint() const { return m_hostKeyFingerprint; }
     QString lastError() const { return m_lastError; }
 
+    using ProgressFn = std::function<void(quint64 done, quint64 total)>;
+
     bool listDirectory(const QString &remotePath, QVector<SftpEntry> *entries);
-    bool downloadFile(const QString &remotePath, const QString &localPath);
-    bool uploadFile(const QString &localPath, const QString &remotePath);
+
+    // Transfers report progress via `progress` and abort early if `*cancel`
+    // becomes true (both optional).
+    bool downloadFile(const QString &remotePath, const QString &localPath,
+                      ProgressFn progress = {},
+                      const std::atomic<bool> *cancel = nullptr);
+    bool uploadFile(const QString &localPath, const QString &remotePath,
+                    ProgressFn progress = {},
+                    const std::atomic<bool> *cancel = nullptr);
+
+    // Remote filesystem operations (M6).
+    bool makeDirectory(const QString &remotePath);
+    bool removeFile(const QString &remotePath);
+    bool removeDirectory(const QString &remotePath);
+    bool rename(const QString &fromPath, const QString &toPath);
+    bool setPermissions(const QString &remotePath, quint32 mode);
+    bool statSize(const QString &remotePath, quint64 *size);
 
 private:
     bool openSocket(const QString &host, quint16 port);

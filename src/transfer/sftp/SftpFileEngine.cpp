@@ -199,13 +199,17 @@ bool SftpFileEngine::listDirectory(const QString &remotePath, QVector<SftpEntry>
     return true;
 }
 
-bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &localPath)
+bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &localPath,
+                                  ProgressFn progress, const std::atomic<bool> *cancel)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
     if (!sftp) {
         setError(QStringLiteral("SFTP is not connected"));
         return false;
     }
+
+    quint64 total = 0;
+    statSize(remotePath, &total); // best-effort, for progress reporting
 
     const QByteArray remote = remotePath.toUtf8();
     LIBSSH2_SFTP_HANDLE *remoteFile =
@@ -222,8 +226,14 @@ bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &loca
         return false;
     }
 
+    quint64 done = 0;
     char buffer[32768];
     for (;;) {
+        if (cancel && cancel->load()) {
+            libssh2_sftp_close(remoteFile);
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
         const ssize_t rc = libssh2_sftp_read(remoteFile, buffer, sizeof(buffer));
         if (rc > 0) {
             if (local.write(buffer, rc) != rc) {
@@ -231,6 +241,9 @@ bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &loca
                 setError(local.errorString());
                 return false;
             }
+            done += static_cast<quint64>(rc);
+            if (progress)
+                progress(done, total ? total : done);
             continue;
         }
         if (rc == 0)
@@ -244,7 +257,8 @@ bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &loca
     return true;
 }
 
-bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remotePath)
+bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remotePath,
+                                ProgressFn progress, const std::atomic<bool> *cancel)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
     if (!sftp) {
@@ -257,6 +271,7 @@ bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remoteP
         setError(local.errorString());
         return false;
     }
+    const quint64 total = static_cast<quint64>(local.size());
 
     const QByteArray remote = remotePath.toUtf8();
     LIBSSH2_SFTP_HANDLE *remoteFile = libssh2_sftp_open(
@@ -269,7 +284,13 @@ bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remoteP
         return false;
     }
 
+    quint64 done = 0;
     while (!local.atEnd()) {
+        if (cancel && cancel->load()) {
+            libssh2_sftp_close(remoteFile);
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
         const QByteArray chunk = local.read(32768);
         const char *ptr = chunk.constData();
         qsizetype remaining = chunk.size();
@@ -282,11 +303,97 @@ bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remoteP
             }
             ptr += written;
             remaining -= written;
+            done += static_cast<quint64>(written);
         }
+        if (progress)
+            progress(done, total);
     }
 
     libssh2_sftp_close(remoteFile);
     return true;
+}
+
+bool SftpFileEngine::makeDirectory(const QString &remotePath)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray path = remotePath.toUtf8();
+    if (libssh2_sftp_mkdir(sftp, path.constData(),
+                           LIBSSH2_SFTP_S_IRWXU | LIBSSH2_SFTP_S_IRGRP |
+                               LIBSSH2_SFTP_S_IXGRP | LIBSSH2_SFTP_S_IROTH |
+                               LIBSSH2_SFTP_S_IXOTH) != 0) {
+        setError(QStringLiteral("Could not create directory: %1").arg(remotePath));
+        return false;
+    }
+    return true;
+}
+
+bool SftpFileEngine::removeFile(const QString &remotePath)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray path = remotePath.toUtf8();
+    if (libssh2_sftp_unlink(sftp, path.constData()) != 0) {
+        setError(QStringLiteral("Could not delete file: %1").arg(remotePath));
+        return false;
+    }
+    return true;
+}
+
+bool SftpFileEngine::removeDirectory(const QString &remotePath)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray path = remotePath.toUtf8();
+    if (libssh2_sftp_rmdir(sftp, path.constData()) != 0) {
+        setError(QStringLiteral("Could not remove directory: %1").arg(remotePath));
+        return false;
+    }
+    return true;
+}
+
+bool SftpFileEngine::rename(const QString &fromPath, const QString &toPath)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray from = fromPath.toUtf8();
+    const QByteArray to = toPath.toUtf8();
+    if (libssh2_sftp_rename(sftp, from.constData(), to.constData()) != 0) {
+        setError(QStringLiteral("Could not rename %1 to %2").arg(fromPath, toPath));
+        return false;
+    }
+    return true;
+}
+
+bool SftpFileEngine::setPermissions(const QString &remotePath, quint32 mode)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray path = remotePath.toUtf8();
+    LIBSSH2_SFTP_ATTRIBUTES attrs{};
+    attrs.flags = LIBSSH2_SFTP_ATTR_PERMISSIONS;
+    attrs.permissions = mode;
+    if (libssh2_sftp_setstat(sftp, path.constData(), &attrs) != 0) {
+        setError(QStringLiteral("Could not change permissions: %1").arg(remotePath));
+        return false;
+    }
+    return true;
+}
+
+bool SftpFileEngine::statSize(const QString &remotePath, quint64 *size)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp || !size)
+        return false;
+    const QByteArray path = remotePath.toUtf8();
+    LIBSSH2_SFTP_ATTRIBUTES attrs{};
+    if (libssh2_sftp_stat(sftp, path.constData(), &attrs) != 0)
+        return false;
+    if (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE) {
+        *size = attrs.filesize;
+        return true;
+    }
+    return false;
 }
 
 bool SftpFileEngine::openSocket(const QString &hostName, quint16 portNumber)

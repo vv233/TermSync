@@ -11,6 +11,8 @@ add_library(termsync_ui STATIC
     terminal_view/TerminalWidget.cpp
     transfer_view/SftpBrowserWidget.h
     transfer_view/SftpBrowserWidget.cpp
+    transfer_view/DualPaneBrowser.h
+    transfer_view/DualPaneBrowser.cpp
 )
 
 target_include_directories(termsync_ui
