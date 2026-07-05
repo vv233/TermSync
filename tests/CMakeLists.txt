@@ -1,6 +1,6 @@
 # Unit tests. GoogleTest is provided by vcpkg (the "tests" feature).
 find_package(GTest CONFIG REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core)
+find_package(Qt6 REQUIRED COMPONENTS Core Sql)
 
 add_executable(termsync_unit_tests
     unit/test_main.cpp
@@ -15,7 +15,10 @@ target_link_libraries(termsync_unit_tests
         termsync_terminal
         termsync_core
         Qt6::Core
+        Qt6::Sql
 )
+
+termsync_deploy_qsqlite(termsync_unit_tests)
 
 include(GoogleTest)
 # Discover tests at ctest-time (not build-time): the test exe links Qt6Core,

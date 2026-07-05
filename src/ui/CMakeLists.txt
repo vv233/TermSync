@@ -9,6 +9,8 @@ add_library(termsync_ui STATIC
     terminal_view/RawTerminalView.cpp
     terminal_view/TerminalWidget.h
     terminal_view/TerminalWidget.cpp
+    transfer_view/SftpBrowserWidget.h
+    transfer_view/SftpBrowserWidget.cpp
 )
 
 target_include_directories(termsync_ui
@@ -21,4 +23,5 @@ target_link_libraries(termsync_ui
         Qt6::Widgets
         termsync_core
         termsync_terminal
+        termsync_transfer
 )

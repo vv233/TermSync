@@ -42,6 +42,7 @@ private:
     // Opens the Quick Connect dialog and, on accept, starts an SSH2 session
     // in a new tab.
     void openQuickConnect();
+    void openQuickSftp();
 
     // Session store / tree.
     void initStores();
@@ -52,8 +53,11 @@ private:
     // Connects a saved profile (retrieving/prompting for the password), and
     // the low-level "open a terminal tab for these params" helper.
     void connectProfile(const core::ConnectionProfile &profile);
+    void connectProfileSftp(const core::ConnectionProfile &profile);
     void startSession(const core::ConnectionProfile &profile,
                       const QString &password);
+    void startSftpSession(const core::ConnectionProfile &profile,
+                          const QString &password);
 
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.

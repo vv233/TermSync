@@ -12,3 +12,5 @@ set_target_properties(termsync PROPERTIES
     WIN32_EXECUTABLE ON
     MACOSX_BUNDLE ON
 )
+
+termsync_deploy_qsqlite(termsync)

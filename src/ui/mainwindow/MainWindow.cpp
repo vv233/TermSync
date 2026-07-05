@@ -20,6 +20,7 @@
 
 #include "session_dialogs/QuickConnectDialog.h"
 #include "terminal_view/TerminalWidget.h"
+#include "transfer_view/SftpBrowserWidget.h"
 
 namespace {
 // Role used to stash a profile id on a session-tree leaf item.
@@ -65,6 +66,8 @@ void MainWindow::createMenus()
     connect(quickConnectAct, &QAction::triggered, this,
             &MainWindow::openQuickConnect);
     placeholder(fileMenu, tr("Connect in Tab..."));
+    QAction *connectSftpAct = fileMenu->addAction(tr("Connect SFTP Session"));
+    connect(connectSftpAct, &QAction::triggered, this, &MainWindow::openQuickSftp);
     fileMenu->addSeparator();
     placeholder(fileMenu, tr("Reconnect"));
     placeholder(fileMenu, tr("Disconnect"));
@@ -151,6 +154,8 @@ void MainWindow::createToolBar()
     QAction *quickConnectAct = toolbar->addAction(tr("Quick Connect"));
     connect(quickConnectAct, &QAction::triggered, this,
             &MainWindow::openQuickConnect);
+    QAction *sftpAct = toolbar->addAction(tr("SFTP"));
+    connect(sftpAct, &QAction::triggered, this, &MainWindow::openQuickSftp);
     for (const QString &name : {tr("Disconnect"), tr("Session Manager")}) {
         QAction *act = toolbar->addAction(name);
         act->setEnabled(false);
@@ -221,6 +226,30 @@ void MainWindow::openQuickConnect()
     }
 
     startSession(profile, password);
+}
+
+void MainWindow::openQuickSftp()
+{
+    QuickConnectDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    core::ConnectionProfile profile = dialog.toProfile();
+    if (profile.host.isEmpty()) {
+        statusBar()->showMessage(tr("SFTP: hostname is required"), 4000);
+        return;
+    }
+    const QString password = dialog.password();
+
+    if (dialog.saveSession() && m_profileStore) {
+        if (m_profileStore->upsert(profile)) {
+            if (profile.savePassword && m_credentialStore)
+                m_credentialStore->store(profile.id, password);
+            loadProfilesIntoTree();
+        }
+    }
+
+    startSftpSession(profile, password);
 }
 
 void MainWindow::initStores()
@@ -304,6 +333,7 @@ void MainWindow::showSessionContextMenu(const QPoint &pos)
 
     QMenu menu(this);
     QAction *connectAct = menu.addAction(tr("Connect"));
+    QAction *connectSftpAct = menu.addAction(tr("Connect SFTP Session"));
     QAction *deleteAct = menu.addAction(tr("Delete"));
     QAction *chosen = menu.exec(m_sessionTree->viewport()->mapToGlobal(pos));
     if (!chosen)
@@ -311,6 +341,13 @@ void MainWindow::showSessionContextMenu(const QPoint &pos)
 
     if (chosen == connectAct) {
         onSessionActivated(item, 0);
+    } else if (chosen == connectSftpAct) {
+        for (const core::ConnectionProfile &p : m_profiles) {
+            if (p.id == id) {
+                connectProfileSftp(p);
+                break;
+            }
+        }
     } else if (chosen == deleteAct) {
         if (m_profileStore) {
             m_profileStore->remove(id);
@@ -337,6 +374,24 @@ void MainWindow::connectProfile(const core::ConnectionProfile &profile)
             return;
     }
     startSession(profile, password);
+}
+
+void MainWindow::connectProfileSftp(const core::ConnectionProfile &profile)
+{
+    QString password;
+    if (profile.savePassword && m_credentialStore)
+        password = m_credentialStore->retrieve(profile.id);
+
+    if (password.isEmpty()) {
+        bool ok = false;
+        password = QInputDialog::getText(
+            this, tr("Password"),
+            tr("Password for %1@%2:").arg(profile.username, profile.host),
+            QLineEdit::Password, QString(), &ok);
+        if (!ok)
+            return;
+    }
+    startSftpSession(profile, password);
 }
 
 void MainWindow::startSession(const core::ConnectionProfile &profile,
@@ -375,6 +430,33 @@ void MainWindow::startSession(const core::ConnectionProfile &profile,
             });
     view->setFocus();
     statusBar()->showMessage(tr("Connecting to %1...").arg(profile.host), 4000);
+}
+
+void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
+                                  const QString &password)
+{
+    core::SshConnectionParams params;
+    params.host = profile.host;
+    params.port = profile.port;
+    params.username = profile.username;
+    params.password = password;
+
+    const QString host = profile.host;
+    const quint16 port = profile.port;
+    auto *view = new SftpBrowserWidget(
+        params,
+        [this, host, port](const QString &fp) {
+            return verifyHostKey(host, port, fp);
+        },
+        this);
+
+    connect(view, &SftpBrowserWidget::statusMessage, this,
+            [this](const QString &msg) { statusBar()->showMessage(msg, 5000); });
+
+    const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
+    const int index = m_sessionTabs->addTab(view, tr("%1 Files").arg(baseTitle));
+    m_sessionTabs->setCurrentIndex(index);
+    statusBar()->showMessage(tr("Opening SFTP for %1...").arg(profile.host), 4000);
 }
 
 bool MainWindow::verifyHostKey(const QString &host, quint16 port,

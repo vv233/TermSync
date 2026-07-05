@@ -1,0 +1,26 @@
+# transfer: file-transfer engines and later queue/sync layers.
+
+find_package(Qt6 REQUIRED COMPONENTS Core)
+find_package(libssh2 CONFIG REQUIRED)
+
+add_library(termsync_transfer STATIC
+    sftp/SftpFileEngine.h
+    sftp/SftpFileEngine.cpp
+)
+
+target_include_directories(termsync_transfer
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(termsync_transfer
+    PUBLIC
+        Qt6::Core
+        termsync_core
+    PRIVATE
+        libssh2::libssh2
+)
+
+if(WIN32)
+    target_link_libraries(termsync_transfer PRIVATE ws2_32)
+endif()

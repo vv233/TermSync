@@ -11,6 +11,15 @@ target_link_libraries(ssh_smoke
         Qt6::Core
 )
 
+add_executable(sftp_smoke
+    sftp_smoke.cpp
+)
+target_link_libraries(sftp_smoke
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
 add_executable(credential_smoke
     credential_smoke.cpp
 )
