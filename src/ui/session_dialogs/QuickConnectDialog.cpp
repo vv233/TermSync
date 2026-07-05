@@ -51,6 +51,7 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
     m_protocol->addItem(tr("FTP"), static_cast<int>(core::Protocol::FTP));
     m_protocol->addItem(tr("FTPS"), static_cast<int>(core::Protocol::FTPS));
     m_protocol->addItem(tr("Telnet"), static_cast<int>(core::Protocol::TELNET));
+    m_protocol->addItem(tr("TN3270"), static_cast<int>(core::Protocol::TN3270));
     m_protocol->addItem(tr("Serial"), static_cast<int>(core::Protocol::SERIAL));
     // Default the port and relabel the host field per protocol.
     connect(m_protocol, &QComboBox::currentIndexChanged, this, [this](int) {
@@ -58,7 +59,7 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
         int port = 22;
         if (proto == core::Protocol::FTP || proto == core::Protocol::FTPS)
             port = 21;
-        else if (proto == core::Protocol::TELNET)
+        else if (proto == core::Protocol::TELNET || proto == core::Protocol::TN3270)
             port = 23;
         m_port->setValue(port);
         const bool serial = proto == core::Protocol::SERIAL;

@@ -14,6 +14,8 @@ enum class Protocol {
     TELNET = 4,
     RLOGIN = 5,
     SERIAL = 6,
+    TN3270 = 7,
+    TN5250 = 8,
 };
 
 enum class AuthMethod {

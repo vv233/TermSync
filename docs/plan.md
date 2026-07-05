@@ -1,6 +1,6 @@
 # 计划：SecureCRT + SecureFX 合体软件（开源，Qt6/C++）
 
-> 📌 **这是本项目已批准的总体设计与路线图**（TermSync）。**MVP 主线 M1–M10 全部完成并验证**（38 项单测全绿；终端与双栏浏览器连真实 SSH/SFTP/FTP 出图；凭据 Windows Credential Manager 往返；windeployqt 自包含打包，Qt 不在 PATH 也能运行，CPack 产出可分发 ZIP）。**M11–M15 也已完成**（端口转发+SOCKS、SCP+X/Y/ZMODEM 帧、Telnet、Serial、JS 脚本引擎），61 项单测全绿。剩余 M16（TN3270/5250）、M17–M20（防火墙/代理、传输增强、调度/CLI、终端强力功能+应用级）为后续里程碑。
+> 📌 **这是本项目已批准的总体设计与路线图**（TermSync）。**MVP 主线 M1–M10 全部完成并验证**（38 项单测全绿；终端与双栏浏览器连真实 SSH/SFTP/FTP 出图；凭据 Windows Credential Manager 往返；windeployqt 自包含打包，Qt 不在 PATH 也能运行，CPack 产出可分发 ZIP）。**M11–M16a 也已完成**（端口转发+SOCKS、SCP+X/Y/ZMODEM 帧、Telnet、Serial、JS 脚本引擎、TN3270 第一版），63 项单测全绿。剩余 M16b（TN5250/完整 3270 属性键盘）、M17–M20（防火墙/代理、传输增强、调度/CLI、终端强力功能+应用级）为后续里程碑。
 > 功能落地进度见 [`ui-parity.md`](ui-parity.md)。本文件是长期参照，随重大决策更新。
 >
 > **实现中的两处务实偏离（相对原计划）**：① 配置持久化用 **Qt6::Sql 内置的 QSQLITE 驱动**（而非 vcpkg sqlite3），零额外依赖、已验证；② 凭据存储 M4 先用 **Windows 凭据管理器原生 API**（而非 QtKeychain，避免 vcpkg-Qt 与官方 Qt 冲突），接口 `CredentialStore` 已抽象，M9 再补 QtKeychain/libsecret 后端跨平台。
@@ -166,10 +166,10 @@ third_party / vcpkg.json  —  libssh2、curl、qtkeychain、sqlite3、nlohmann-
 - **M13 Telnet / rlogin 协议**：新增 `TelnetConnection`/`RloginConnection`（Telnet 选项协商 IAC、NAWS 窗口大小、终端类型），复用现有 `TerminalWidget` 渲染与会话/标签体系；Quick Connect 协议下拉加入。*出口：连 Telnet/rlogin 服务器正常交互。*
 - **M14 Serial(串口)**：`SerialConnection` 用 Qt SerialPort，Session Options 加串口面板（波特率/数据位/停止位/校验/流控），复用终端渲染。*出口：连本地串口设备（或虚拟串口对）收发数据。*
 - **M15 脚本引擎（自动化）**：嵌入脚本运行时 + 暴露自动化对象模型（对齐 SecureCRT 的 `crt.Screen` / `crt.Session` / `crt.Dialog` API 语义）。首选嵌入 **Python**（pybind11 暴露对象模型），并提供 VBScript/JScript 兼容层（Windows 用 Active Scripting，跨平台可用 QuickJS 跑 JScript 子集）；Script 菜单的 Run/Record/Map to button。*出口：录制一段登录+发命令脚本并回放；脚本读取屏幕文本并据此分支。*
-- **M16 主机仿真 TN3270 / TN5250**：IBM 主机仿真（3270/5250 数据流解析 + 字段属性 + 键盘映射 + 屏幕渲染），作为独立仿真模式接入终端标签体系。*出口：连 TN3270 主机看到正确的字段化屏幕并可提交。*
+- **M16 主机仿真 TN3270 / TN5250**：IBM 主机仿真（3270/5250 数据流解析 + 字段属性 + 键盘映射 + 屏幕渲染），作为独立仿真模式接入终端标签体系。*M16a 已完成：TN3270 Telnet 协商、EOR 分帧、基础 3270 Write/EraseWrite/SBA/SF 字段屏幕、输入字段编辑与 Enter 提交，并接入 Quick Connect。M16b 跟进 TN5250、扩展属性/颜色、PF/PA/Clear/Reset 键与真实主机 golden captures。*
 
 - **M17 防火墙/代理 + 高级认证**：命名防火墙、SOCKS4/5、HTTP 代理、TIS/WinGate、本地代理命令、Dependent Session（依赖会话/跳板）；Kerberos v5 / GSSAPI 密钥交换、X.509 证书认证、SSH-agent 转发、OpenSSH 证书、多种密钥格式(RSA/Ed25519/ECDSA/DSA/PuTTY PPK)。*出口：经 SOCKS5 代理连内网主机；用 Ed25519 密钥 + agent 转发连跳板后到目标。*
-- **M18 传输能力增强（SecureFX 高级）**：多连接/并行传输、带宽限速、暂停/恢复、"Relentless"断线自动重连续传、覆盖控制、移动文件、忙站重试、保活、同步浏览(两栏联动)、书签/书签管理器、SFTP ASCII 模式、上传权限/权限保留、符号链接解析、文件名大小写转换。*出口：限速下并行传大目录，中途断网自动重连续传，暂停/恢复正常。*
+- **M18 传输能力增强（SecureFX 高级）**：多连接/并行传输、高性能 SFTP 模式（异步 read 请求流水线、nonblocking I/O pump、channel packet/window 调优、上传 write 确认流水线或安全的分块并发）、带宽限速、暂停/恢复、"Relentless"断线自动重连续传、覆盖控制、移动文件、忙站重试、保活、同步浏览(两栏联动)、书签/书签管理器、SFTP ASCII 模式、上传权限/权限保留、符号链接解析、文件名大小写转换。*出口：限速下并行传大目录，中途断网自动重连续传，暂停/恢复正常；5GB SFTP 基准达到可量化吞吐目标并记录与 WindTerm/FileZilla/WinSCP 的对比。*
 - **M19 自动化/调度/命令行工具**：任务调度器(定时同步/传输)、命令行自动化工具(对齐 SecureFX 的 SFXCL 与 SecureCRT 命令行选项)、脚本编辑器标签页 + 脚本录制器、ActiveX 多语言(Windows) + Python 全平台、远程文件编辑(下载→本地编辑器→回传)、Execute Local Shell Command、Quote/Raw 命令。*出口：命令行工具无 GUI 完成一次 SFTP 同步；调度任务每天定时跑；远程文件双击本地编辑保存自动回传。*
 - **M20 终端强力功能 + 应用级**：实时关键字高亮、Hex View、Scratchpad 标签、本地 Shell 会话、命令窗口(多会话广播)、Active Sessions Manager、按钮栏/Command Manager、日志(参数替换/轮转/命令行)、主机打印(host-based printing)、深色模式、字体缩放/Alpha 透明、URL/Google 搜索、会话锁定、TFTP 服务器、Unicode/80-132 列/NRCS、凭据管理器(全局凭据集)、Personal Data Folder、导入/导出配置、自动更新、MSI 安装器、FIPS 140-2、IPv6、Section 508 无障碍。*出口：官方功能页逐项在 `docs/ui-parity.md` 勾对完成。*
 

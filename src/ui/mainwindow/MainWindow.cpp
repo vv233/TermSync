@@ -25,6 +25,7 @@
 #include "serial/SerialConnection.h"
 #include "session_dialogs/QuickConnectDialog.h"
 #include "telnet/TelnetConnection.h"
+#include "tn3270/Tn3270Connection.h"
 #include "terminal_view/TerminalWidget.h"
 #include "transfer_view/DualPaneBrowser.h"
 #include "transfer_view/SftpBrowserWidget.h"
@@ -247,6 +248,8 @@ void MainWindow::openQuickConnect()
         startSession(profile, password);
     else if (profile.protocol == core::Protocol::TELNET)
         startTelnetSession(profile);
+    else if (profile.protocol == core::Protocol::TN3270)
+        startTn3270Session(profile);
     else if (profile.protocol == core::Protocol::SERIAL)
         startSerialSession(profile);
     else
@@ -347,6 +350,8 @@ void MainWindow::onSessionActivated(QTreeWidgetItem *item, int)
                 connectProfile(p);
             else if (p.protocol == core::Protocol::TELNET)
                 startTelnetSession(p);
+            else if (p.protocol == core::Protocol::TN3270)
+                startTn3270Session(p);
             else if (p.protocol == core::Protocol::SERIAL)
                 startSerialSession(p);
             else
@@ -525,6 +530,22 @@ void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
 
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (Telnet) to %1...").arg(profile.host), 4000);
+}
+
+void MainWindow::startTn3270Session(const core::ConnectionProfile &profile)
+{
+    auto *conn = new core::Tn3270Connection;
+    auto *view = new TerminalWidget(conn, this);
+    connect(view, &TerminalWidget::statusMessage, this,
+            [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+
+    const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
+    const int index = m_sessionTabs->addTab(view, baseTitle);
+    m_sessionTabs->setCurrentIndex(index);
+    view->setFocus();
+
+    conn->connectToHost(profile.host, profile.port ? profile.port : 23);
+    statusBar()->showMessage(tr("Connecting (TN3270) to %1...").arg(profile.host), 4000);
 }
 
 void MainWindow::runScript()

@@ -30,9 +30,10 @@ Legend: `→ Mn` = target milestone.
 - [x] **M13** Telnet  ✅ *AbstractTerminalConnection base lets TerminalWidget drive any protocol; TelnetConnection (IAC negotiation, NAWS, terminal-type) verified live against telehack.com; SSH regression-verified. rlogin is a thin follow-up variant*
 - [x] **M14** Serial  ✅ *SerialConnection via the native OS serial API (Win32 CreateFile/ReadFile + POSIX termios) on a worker thread — no Qt SerialPort dep; wired into Quick Connect (Serial protocol, baud) and MainWindow. Code-complete; live test needs a real/virtual serial device the sandbox lacks*
 - [x] **M15** Scripting engine  ✅ *QJSEngine-based JavaScript automation with a SecureCRT-style crt.Screen/crt.Session object model (Send/SendLine/WaitForString/Get/Sleep), 7 unit tests; Script→Run executes .js against the active terminal via TerminalScriptContext. Python + record/map-to-button are follow-ups*
-- [ ] **M16** TN3270 / TN5250 host emulation
+- [x] **M16a** TN3270 host emulation  ✅ *TN3270 Telnet negotiation + EOR records; basic 3270 screen/field model (Write/EraseWrite/SBA/SF/RA/EUA), editable unprotected fields, Enter modified-field submit, Quick Connect protocol option; 2 stream parser unit tests. TN5250 and full 3270 attributes/keys remain M16b follow-ups*
+- [ ] **M16b** TN5250 + full 3270 attributes/keyboard
 - [ ] **M17** Firewall/proxy + advanced auth (Kerberos/GSSAPI/X.509)
-- [ ] **M18** Advanced transfer (parallel, throttle, resume, relentless, bookmarks)
+- [ ] **M18** Advanced transfer (parallel, high-speed SFTP pipeline, throttle, resume, relentless, bookmarks)
 - [ ] **M19** Automation/scheduler/CLI tools + remote file editing
 - [ ] **M20** Terminal power features + application-level polish
 
@@ -125,7 +126,8 @@ Legend: `→ Mn` = target milestone.
 
 ### Emulation
 - [ ] VT100/102/220/320, ANSI, SCO ANSI, Xterm, Linux console  → M3
-- [ ] TN3270 / TVI910/925 / Wyse 50/60  → M16
+- [x] TN3270  → M16a
+- [ ] TN5250 / TVI910/925 / Wyse 50/60  → M16b/M20
 - [ ] Xterm extensions / char attributes / Unicode / 80-132 col / configurable rows-cols / NAWS  → M3
 - [ ] National Replacement Character Set  → M20
 - [ ] Raw protocol mode  → M2
@@ -209,6 +211,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] Site synchronization (upload/download/mirror)  → M7
 - [ ] Synchronized file browsing  → M18
 - [ ] Multiple simultaneous connections and transfers  → M18
+- [ ] High-speed SFTP pipeline (async read, nonblocking I/O pump, packet/window tuning, benchmark target)  → M18
 - [ ] Complete overwrite control  → M18
 - [ ] "Relentless" file transfer (auto-reconnect)  → M18
 - [ ] Pause and resume transfers  → M18

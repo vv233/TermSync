@@ -59,6 +59,7 @@ private:
     void startSftpSession(const core::ConnectionProfile &profile,
                           const QString &password);
     void startTelnetSession(const core::ConnectionProfile &profile);
+    void startTn3270Session(const core::ConnectionProfile &profile);
     void startSerialSession(const core::ConnectionProfile &profile);
 
     // Runs a JavaScript automation script against the active terminal tab.
