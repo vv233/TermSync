@@ -24,7 +24,7 @@ Legend: `→ Mn` = target milestone.
 - [x] **M7** Sync engine (one-way + two-way)  ✅ *DirectoryDiffer + SyncEngine (state persistence, executor); 13 deterministic tests incl. end-to-end idempotency & conflict policies. GUI Synchronize dialog is a thin follow-up (needs recursive remote enumeration)*
 - [x] **M8** FTP/FTPS  ✅ *shared FileEngine interface; FtpFileEngine (libcurl) verified live against Rebex FTP (connect+list); protocol picked per-profile in the session/browser + Quick Connect protocol dropdown. FTPS wired (flag) — data-channel TLS interop tuning is a follow-up*
 - [x] **M9** Public-key/agent/keyboard-interactive auth  ✅ *auth dispatch in both SSH & SFTP engines (publickey-fromfile w/ passphrase, ssh-agent identities, keyboard-interactive); Quick Connect auth-method + key-file UI; password paths regression-verified live. Public-key positive test needs a controllable server; encrypted non-keychain vault still a follow-up*
-- [ ] **M10** Packaging (first releasable MVP)
+- [x] **M10** Packaging (first releasable MVP)  ✅ *About dialog, THIRD_PARTY_NOTICES, windeployqt integration + CPack (NSIS;ZIP); verified self-contained launch with Qt off PATH and produced a 35 MB distributable ZIP (NSIS .exe needs NSIS installed on the build host)*
 - [ ] **M11** Port forwarding (local/remote/dynamic SOCKS)
 - [ ] **M12** SCP + X/Y/ZMODEM
 - [ ] **M13** Telnet / rlogin

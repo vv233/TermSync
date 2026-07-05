@@ -1,6 +1,7 @@
 #include "mainwindow/MainWindow.h"
 
 #include <QAction>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
 #include <QHash>
@@ -138,9 +139,17 @@ void MainWindow::createMenus()
     placeholder(helpMenu, tr("Help Topics"));
     QAction *aboutAct = helpMenu->addAction(tr("About TermSync"));
     connect(aboutAct, &QAction::triggered, this, [this] {
-        statusBar()->showMessage(
-            tr("TermSync 0.1.0 — M1 scaffold. See docs/ui-parity.md for the roadmap."),
-            5000);
+        QMessageBox::about(
+            this, tr("About TermSync"),
+            tr("<h3>TermSync %1</h3>"
+               "<p>Open-source SSH terminal + SFTP/FTP client.</p>"
+               "<p>SSH2 terminal emulation, session management, a dual-pane "
+               "file browser, and directory synchronization in one app.</p>"
+               "<p>Built with Qt %2, libssh2, and libcurl. Licensed under the "
+               "MIT License.</p>"
+               "<p><i>Not affiliated with VanDyke Software.</i></p>")
+                .arg(QCoreApplication::applicationVersion(),
+                     QStringLiteral(QT_VERSION_STR)));
     });
 }
 

@@ -4,9 +4,12 @@ An open-source, cross-platform **SSH terminal + SFTP/FTP file-transfer client** 
 the core capabilities of a SecureCRT-style terminal emulator and a SecureFX-style file-transfer
 tool into a single application, built with **C++ / Qt 6**.
 
-> ⚠️ **Early development.** This repository currently contains the **M1 scaffold** only:
-> a build system and an empty Qt 6 main window with the menu shell. No SSH/SFTP functionality
-> is implemented yet. See [the plan](#roadmap) below.
+> ✅ **MVP complete (M1–M10).** Working SSH2 terminal, session manager with OS-keychain
+> credential storage, a dual-pane SFTP/FTP browser with a transfer queue, a directory
+> sync engine, public-key/agent auth, and a self-contained `windeployqt` + CPack package.
+> 38 unit tests pass; terminal and file browser are verified against live SSH/SFTP/FTP
+> servers. See [`docs/ui-parity.md`](docs/ui-parity.md) for exact status and the M11–M20
+> roadmap (port forwarding, SCP/ZMODEM, Telnet/Serial, scripting, TN3270, …).
 
 ## Why one app?
 

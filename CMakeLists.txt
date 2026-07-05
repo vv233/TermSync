@@ -60,3 +60,27 @@ if(TERMSYNC_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# --- Packaging (M10) -------------------------------------------------------
+set(CPACK_PACKAGE_NAME "TermSync")
+set(CPACK_PACKAGE_VENDOR "TermSync contributors")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "SSH terminal + SFTP/FTP client")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "TermSync")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+
+if(WIN32)
+    # NSIS installer (requires NSIS installed to actually build the package).
+    set(CPACK_GENERATOR "NSIS;ZIP")
+    set(CPACK_NSIS_PACKAGE_NAME "TermSync")
+    set(CPACK_NSIS_DISPLAY_NAME "TermSync")
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "termsync.exe")
+    set(CPACK_PACKAGE_EXECUTABLES "termsync;TermSync")
+elseif(APPLE)
+    set(CPACK_GENERATOR "DragNDrop")
+else()
+    set(CPACK_GENERATOR "TGZ")
+endif()
+
+include(CPack)
