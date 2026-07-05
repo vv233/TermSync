@@ -44,6 +44,8 @@ public:
     // Set the remote file's mtime (and atime) in seconds since epoch, so sync's
     // mtime/size comparison stays idempotent across runs.
     bool setModifiedTime(const QString &remotePath, qint64 secsSinceEpoch) override;
+    // Run a command on the server over an SSH exec channel (raw/quote command).
+    bool runCommand(const QString &command, QString *stdoutText, int *exitCode) override;
     void setRateLimitBytesPerSec(quint64 bytesPerSec) override { m_rateBytesPerSec = bytesPerSec; }
     void setResume(bool resume) override { m_resume = resume; }
     void setPauseFlag(const std::atomic<bool> *pause) override { m_pauseFlag = pause; }

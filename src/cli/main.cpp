@@ -9,10 +9,13 @@
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QProcess>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QThread>
 #include <memory>
 #include <cstdio>
@@ -266,6 +269,7 @@ int main(int argc, char *argv[])
     QCommandLineOption oName = opt({"name"}, "schedule: job name.", "name");
     QCommandLineOption oInterval = opt({"interval"}, "schedule: repeat every N seconds (0=once).", "secs");
     QCommandLineOption oPoll = opt({"poll"}, "schedule daemon: poll interval seconds.", "secs", "60");
+    QCommandLineOption oEditor = opt({"editor"}, "edit: editor command (default $EDITOR or vi).", "cmd");
     p.process(app);
 
     const QStringList pos = p.positionalArguments();
@@ -273,6 +277,22 @@ int main(int argc, char *argv[])
         return fail("no command (try --help)");
     const QString command = pos.first();
     const QStringList args = pos.mid(1);
+
+    // --- execute a local shell command (no server connection) ---
+    if (command == "exec-local") {
+        if (args.isEmpty())
+            return fail("exec-local <command...>");
+        const QString cmd = args.join(' ');
+        QProcess proc;
+        proc.setProcessChannelMode(QProcess::ForwardedChannels);
+#ifdef _WIN32
+        proc.start(QStringLiteral("cmd.exe"), {QStringLiteral("/c"), cmd});
+#else
+        proc.start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), cmd});
+#endif
+        proc.waitForFinished(-1);
+        return proc.exitCode();
+    }
 
     // --- scheduler: manage/run persisted jobs (no global connection needed) ---
     if (command == "schedule") {
@@ -461,6 +481,49 @@ int main(int argc, char *argv[])
     if (command == "sync") {
         if (!need(2)) return 2;
         return runSync(*engine, args[0], args[1], p.isSet(oDown), p.isSet(oDelete), p.isSet(oDryRun));
+    }
+
+    if (command == "exec") { // raw/quote: run a command on the server over SSH
+        if (!need(1)) return 2;
+        QString out;
+        int code = 0;
+        if (!engine->runCommand(args.join(' '), &out, &code))
+            return fail(engine->lastError());
+        std::fputs(out.toUtf8().constData(), stdout);
+        return code;
+    }
+
+    if (command == "edit") { // download -> local editor -> re-upload if changed
+        if (!need(1)) return 2;
+        const QString remote = args[0];
+        QTemporaryDir tmp;
+        const QString localCopy = tmp.filePath(QFileInfo(remote).fileName());
+        if (!engine->downloadFile(remote, localCopy))
+            return fail("edit: download failed: " + engine->lastError());
+        const auto digest = [](const QString &path) {
+            QFile f(path);
+            return f.open(QIODevice::ReadOnly)
+                       ? QCryptographicHash::hash(f.readAll(), QCryptographicHash::Sha256)
+                       : QByteArray();
+        };
+        const QByteArray before = digest(localCopy);
+        QString editorCmd = p.value(oEditor);
+        if (editorCmd.isEmpty())
+            editorCmd = qEnvironmentVariable("EDITOR", QStringLiteral("vi"));
+        QStringList parts = QProcess::splitCommand(editorCmd);
+        if (parts.isEmpty())
+            return fail("edit: empty editor command");
+        const QString program = parts.takeFirst();
+        parts << localCopy;
+        QProcess::execute(program, parts); // blocks until the editor exits
+        if (digest(localCopy) == before) {
+            std::fprintf(stderr, "edit: no changes\n");
+            return 0;
+        }
+        if (!engine->uploadFile(localCopy, remote))
+            return fail("edit: re-upload failed: " + engine->lastError());
+        std::fprintf(stderr, "edit: uploaded changes to %s\n", remote.toUtf8().constData());
+        return 0;
     }
 
     return fail("unknown command: " + command);

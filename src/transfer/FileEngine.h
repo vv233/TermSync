@@ -65,6 +65,9 @@ public:
     // Set the remote mtime (seconds since epoch); false if unsupported. Keeps
     // mtime/size sync idempotent. Non-fatal on failure.
     virtual bool setModifiedTime(const QString &, qint64) { return false; }
+    // Run a command on the server (SSH exec channel), capturing stdout and the
+    // exit code. False if unsupported (e.g. FTP). This is the "raw/quote" path.
+    virtual bool runCommand(const QString &, QString *, int *) { return false; }
 
     // Cap the aggregate transfer rate in bytes/second (0 = unlimited). Backends
     // that don't implement throttling ignore it.

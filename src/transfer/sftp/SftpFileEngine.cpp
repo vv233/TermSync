@@ -1488,6 +1488,42 @@ bool SftpFileEngine::setPermissions(const QString &remotePath, quint32 mode)
     return true;
 }
 
+bool SftpFileEngine::runCommand(const QString &command, QString *stdoutText, int *exitCode)
+{
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    if (!session) { setError(QStringLiteral("Not connected")); return false; }
+
+    LIBSSH2_CHANNEL *channel = libssh2_channel_open_session(session);
+    if (!channel) { setError(QStringLiteral("Could not open exec channel")); return false; }
+
+    const QByteArray cmd = command.toUtf8();
+    if (libssh2_channel_exec(channel, cmd.constData()) != 0) {
+        libssh2_channel_free(channel);
+        setError(QStringLiteral("Could not exec: %1").arg(command));
+        return false;
+    }
+
+    QByteArray out;
+    char buffer[4096];
+    for (;;) {
+        const ssize_t n = libssh2_channel_read(channel, buffer, sizeof(buffer));
+        if (n > 0) {
+            out.append(buffer, n);
+            continue;
+        }
+        break; // 0 = EOF; the session is blocking so EAGAIN won't occur here
+    }
+    libssh2_channel_send_eof(channel);
+    libssh2_channel_wait_eof(channel);
+    libssh2_channel_wait_closed(channel);
+    if (exitCode)
+        *exitCode = libssh2_channel_get_exit_status(channel);
+    libssh2_channel_free(channel);
+    if (stdoutText)
+        *stdoutText = QString::fromUtf8(out);
+    return true;
+}
+
 bool SftpFileEngine::setModifiedTime(const QString &remotePath, qint64 secsSinceEpoch)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
