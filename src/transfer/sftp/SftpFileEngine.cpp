@@ -1488,6 +1488,22 @@ bool SftpFileEngine::setPermissions(const QString &remotePath, quint32 mode)
     return true;
 }
 
+bool SftpFileEngine::setModifiedTime(const QString &remotePath, qint64 secsSinceEpoch)
+{
+    auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
+    if (!sftp) { setError(QStringLiteral("SFTP is not connected")); return false; }
+    const QByteArray path = remotePath.toUtf8();
+    LIBSSH2_SFTP_ATTRIBUTES attrs{};
+    attrs.flags = LIBSSH2_SFTP_ATTR_ACMODTIME;
+    attrs.atime = static_cast<unsigned long>(secsSinceEpoch);
+    attrs.mtime = static_cast<unsigned long>(secsSinceEpoch);
+    if (libssh2_sftp_setstat(sftp, path.constData(), &attrs) != 0) {
+        setError(QStringLiteral("Could not set mtime: %1").arg(remotePath));
+        return false;
+    }
+    return true;
+}
+
 bool SftpFileEngine::statSize(const QString &remotePath, quint64 *size)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);

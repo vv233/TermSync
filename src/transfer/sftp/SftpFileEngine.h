@@ -41,6 +41,9 @@ public:
     bool rename(const QString &fromPath, const QString &toPath) override;
     bool setPermissions(const QString &remotePath, quint32 mode) override;
     bool statSize(const QString &remotePath, quint64 *size) override;
+    // Set the remote file's mtime (and atime) in seconds since epoch, so sync's
+    // mtime/size comparison stays idempotent across runs.
+    bool setModifiedTime(const QString &remotePath, qint64 secsSinceEpoch) override;
     void setRateLimitBytesPerSec(quint64 bytesPerSec) override { m_rateBytesPerSec = bytesPerSec; }
     void setResume(bool resume) override { m_resume = resume; }
     void setPauseFlag(const std::atomic<bool> *pause) override { m_pauseFlag = pause; }

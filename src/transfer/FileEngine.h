@@ -62,6 +62,9 @@ public:
     // No-op / unsupported returns false; callers treat that as non-fatal.
     virtual bool setPermissions(const QString &remotePath, quint32 mode) = 0;
     virtual bool statSize(const QString &remotePath, quint64 *size) = 0;
+    // Set the remote mtime (seconds since epoch); false if unsupported. Keeps
+    // mtime/size sync idempotent. Non-fatal on failure.
+    virtual bool setModifiedTime(const QString &, qint64) { return false; }
 
     // Cap the aggregate transfer rate in bytes/second (0 = unlimited). Backends
     // that don't implement throttling ignore it.

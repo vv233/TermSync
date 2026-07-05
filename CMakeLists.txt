@@ -56,6 +56,7 @@ add_subdirectory(src/transfer)
 add_subdirectory(src/script)
 add_subdirectory(src/ui)
 add_subdirectory(src/app)
+add_subdirectory(src/cli)
 
 if(TERMSYNC_BUILD_TESTS)
     enable_testing()
