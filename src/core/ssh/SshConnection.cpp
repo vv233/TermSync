@@ -1,9 +1,12 @@
 #include "ssh/SshConnection.h"
 
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QMutex>
 #include <QThread>
 #include <QTimer>
+#include <cstdlib>
+#include <cstring>
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -252,10 +255,91 @@ private:
 
     bool authenticate()
     {
+        switch (m_params.authMethod) {
+        case termsync::core::SshAuthMethod::PublicKey:
+            return authPublicKey();
+        case termsync::core::SshAuthMethod::Agent:
+            return authAgent();
+        case termsync::core::SshAuthMethod::KeyboardInteractive:
+            return authKeyboardInteractive();
+        case termsync::core::SshAuthMethod::Password:
+        default:
+            return authPassword();
+        }
+    }
+
+    bool authPassword()
+    {
         const QByteArray user = m_params.username.toUtf8();
         const QByteArray pass = m_params.password.toUtf8();
         return libssh2_userauth_password(m_session, user.constData(),
                                          pass.constData()) == 0;
+    }
+
+    bool authPublicKey()
+    {
+        const QByteArray user = m_params.username.toUtf8();
+        const QByteArray priv = m_params.privateKeyPath.toUtf8();
+        const QByteArray pub = (m_params.privateKeyPath + ".pub").toUtf8();
+        const QByteArray phrase = m_params.passphrase.toUtf8();
+        const bool havePub = QFileInfo::exists(m_params.privateKeyPath + ".pub");
+        return libssh2_userauth_publickey_fromfile(
+                   m_session, user.constData(), havePub ? pub.constData() : nullptr,
+                   priv.constData(),
+                   phrase.isEmpty() ? nullptr : phrase.constData()) == 0;
+    }
+
+    bool authAgent()
+    {
+        const QByteArray user = m_params.username.toUtf8();
+        LIBSSH2_AGENT *agent = libssh2_agent_init(m_session);
+        if (!agent)
+            return false;
+        struct AgentGuard {
+            LIBSSH2_AGENT *a;
+            ~AgentGuard() { libssh2_agent_disconnect(a); libssh2_agent_free(a); }
+        } guard{agent};
+
+        if (libssh2_agent_connect(agent) != 0)
+            return false;
+        if (libssh2_agent_list_identities(agent) != 0)
+            return false;
+
+        struct libssh2_agent_publickey *identity = nullptr;
+        for (;;) {
+            const int rc = libssh2_agent_get_identity(agent, &identity,
+                                                      identity /*prev*/);
+            if (rc != 0) // 1 = end of list, <0 = error
+                return false;
+            if (libssh2_agent_userauth(agent, user.constData(), identity) == 0)
+                return true; // authenticated with this identity
+        }
+    }
+
+    // Answers keyboard-interactive prompts with the stored password. This
+    // covers single-prompt "password" setups; true multi-prompt OTP with a
+    // live dialog is a follow-up.
+    static void kbdCallback(const char *, int, const char *, int,
+                            int num_prompts,
+                            const LIBSSH2_USERAUTH_KBDINT_PROMPT *,
+                            LIBSSH2_USERAUTH_KBDINT_RESPONSE *responses,
+                            void **abstract)
+    {
+        auto *self = static_cast<SshWorker *>(*abstract);
+        const QByteArray pass = self->m_params.password.toUtf8();
+        for (int i = 0; i < num_prompts; ++i) {
+            responses[i].text = static_cast<char *>(malloc(pass.size()));
+            memcpy(responses[i].text, pass.constData(), pass.size());
+            responses[i].length = static_cast<unsigned int>(pass.size());
+        }
+    }
+
+    bool authKeyboardInteractive()
+    {
+        const QByteArray user = m_params.username.toUtf8();
+        *libssh2_session_abstract(m_session) = this;
+        return libssh2_userauth_keyboard_interactive(
+                   m_session, user.constData(), &SshWorker::kbdCallback) == 0;
     }
 
     bool openShell()

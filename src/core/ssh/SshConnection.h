@@ -8,14 +8,28 @@ class QThread;
 
 namespace termsync::core {
 
+// Authentication method for an SSH connection.
+enum class SshAuthMethod {
+    Password = 0,
+    PublicKey = 1,           // private key file (optionally passphrase-protected)
+    KeyboardInteractive = 2, // answered with `password` for single-prompt setups
+    Agent = 3,               // try identities from a running SSH agent
+};
+
 // Parameters needed to open an SSH2 shell session.
-// M2 supports password auth only; public-key/agent arrive in M9.
 struct SshConnectionParams
 {
     QString host;
     quint16 port = 22;
     QString username;
     QString password;
+
+    // Authentication (M9). For PublicKey, privateKeyPath is required; the
+    // matching ".pub" is used if present, and passphrase decrypts the key.
+    SshAuthMethod authMethod = SshAuthMethod::Password;
+    QString privateKeyPath;
+    QString passphrase;
+
     // Initial PTY size (updated later via SshConnection::resize()).
     int cols = 80;
     int rows = 24;

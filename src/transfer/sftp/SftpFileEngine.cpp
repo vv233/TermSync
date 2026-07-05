@@ -1,6 +1,7 @@
 #include "sftp/SftpFileEngine.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QMutex>
 
 #ifdef _WIN32
@@ -434,12 +435,51 @@ bool SftpFileEngine::authenticate(const core::SshConnectionParams &params)
 {
     auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
     const QByteArray user = params.username.toUtf8();
-    const QByteArray pass = params.password.toUtf8();
-    if (libssh2_userauth_password(session, user.constData(), pass.constData()) != 0) {
-        setError(QStringLiteral("Password authentication failed"));
-        return false;
+
+    bool ok = false;
+    switch (params.authMethod) {
+    case core::SshAuthMethod::PublicKey: {
+        const QByteArray priv = params.privateKeyPath.toUtf8();
+        const QByteArray pub = (params.privateKeyPath + ".pub").toUtf8();
+        const QByteArray phrase = params.passphrase.toUtf8();
+        const bool havePub = QFileInfo::exists(params.privateKeyPath + ".pub");
+        ok = libssh2_userauth_publickey_fromfile(
+                 session, user.constData(), havePub ? pub.constData() : nullptr,
+                 priv.constData(),
+                 phrase.isEmpty() ? nullptr : phrase.constData()) == 0;
+        break;
     }
-    return true;
+    case core::SshAuthMethod::Agent: {
+        LIBSSH2_AGENT *agent = libssh2_agent_init(session);
+        if (agent && libssh2_agent_connect(agent) == 0 &&
+            libssh2_agent_list_identities(agent) == 0) {
+            struct libssh2_agent_publickey *identity = nullptr;
+            while (libssh2_agent_get_identity(agent, &identity, identity) == 0) {
+                if (libssh2_agent_userauth(agent, user.constData(), identity) == 0) {
+                    ok = true;
+                    break;
+                }
+            }
+        }
+        if (agent) {
+            libssh2_agent_disconnect(agent);
+            libssh2_agent_free(agent);
+        }
+        break;
+    }
+    case core::SshAuthMethod::Password:
+    case core::SshAuthMethod::KeyboardInteractive:
+    default: {
+        const QByteArray pass = params.password.toUtf8();
+        ok = libssh2_userauth_password(session, user.constData(),
+                                       pass.constData()) == 0;
+        break;
+    }
+    }
+
+    if (!ok)
+        setError(QStringLiteral("Authentication failed"));
+    return ok;
 }
 
 void SftpFileEngine::setError(const QString &message)

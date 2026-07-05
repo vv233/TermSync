@@ -3,7 +3,10 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFileDialog>
 #include <QFormLayout>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
@@ -28,6 +31,16 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
 
     m_username = new QLineEdit(this);
 
+    m_authMethod = new QComboBox(this);
+    m_authMethod->addItem(tr("Password"), static_cast<int>(core::AuthMethod::Password));
+    m_authMethod->addItem(tr("Public Key"), static_cast<int>(core::AuthMethod::PublicKey));
+    m_authMethod->addItem(tr("Keyboard Interactive"),
+                          static_cast<int>(core::AuthMethod::KeyboardInteractive));
+    m_authMethod->addItem(tr("SSH Agent"), static_cast<int>(core::AuthMethod::Agent));
+
+    m_keyPath = new QLineEdit(this);
+    m_keyPath->setPlaceholderText(tr("path to private key"));
+
     m_password = new QLineEdit(this);
     m_password->setEchoMode(QLineEdit::Password);
 
@@ -49,7 +62,37 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
     form->addRow(tr("Hostname:"), m_host);
     form->addRow(tr("Port:"), m_port);
     form->addRow(tr("Username:"), m_username);
-    form->addRow(tr("Password:"), m_password);
+    form->addRow(tr("Auth:"), m_authMethod);
+
+    // Key path row with a Browse button (only relevant for Public Key auth).
+    auto *keyRow = new QWidget(this);
+    auto *keyLayout = new QHBoxLayout(keyRow);
+    keyLayout->setContentsMargins(0, 0, 0, 0);
+    auto *browse = new QPushButton(tr("Browse..."), keyRow);
+    keyLayout->addWidget(m_keyPath, 1);
+    keyLayout->addWidget(browse);
+    connect(browse, &QPushButton::clicked, this, [this] {
+        const QString f = QFileDialog::getOpenFileName(this, tr("Select Private Key"));
+        if (!f.isEmpty())
+            m_keyPath->setText(f);
+    });
+    form->addRow(tr("Private key:"), keyRow);
+
+    auto *passwordLabel = new QLabel(tr("Password:"), this);
+    form->addRow(passwordLabel, m_password);
+
+    // Toggle the key row / password label meaning based on the auth method.
+    auto updateAuthUi = [this, keyRow, passwordLabel] {
+        const auto m = static_cast<core::AuthMethod>(m_authMethod->currentData().toInt());
+        const bool pubkey = m == core::AuthMethod::PublicKey;
+        keyRow->setVisible(pubkey);
+        passwordLabel->setText(pubkey ? tr("Passphrase:") : tr("Password:"));
+        m_password->setVisible(m != core::AuthMethod::Agent);
+        passwordLabel->setVisible(m != core::AuthMethod::Agent);
+    };
+    connect(m_authMethod, &QComboBox::currentIndexChanged, this,
+            [updateAuthUi](int) { updateAuthUi(); });
+    updateAuthUi();
 
     m_saveSession = new QCheckBox(tr("Save session"), this);
     m_savePassword = new QCheckBox(tr("Save password"), this);
@@ -103,7 +146,8 @@ core::ConnectionProfile QuickConnectDialog::toProfile() const
     // Name defaults to user@host when saving; the session tree shows this.
     p.name = p.username.isEmpty() ? p.host : (p.username + '@' + p.host);
     p.protocol = static_cast<core::Protocol>(m_protocol->currentData().toInt());
-    p.authMethod = core::AuthMethod::Password;
+    p.authMethod = static_cast<core::AuthMethod>(m_authMethod->currentData().toInt());
+    p.privateKeyPath = m_keyPath->text().trimmed();
     p.savePassword = savePassword();
     return p;
 }
@@ -114,7 +158,14 @@ core::SshConnectionParams QuickConnectDialog::params() const
     p.host = m_host->text().trimmed();
     p.port = static_cast<quint16>(m_port->value());
     p.username = m_username->text().trimmed();
-    p.password = m_password->text();
+    // core::AuthMethod and core::SshAuthMethod share ordering.
+    p.authMethod = static_cast<core::SshAuthMethod>(m_authMethod->currentData().toInt());
+    p.privateKeyPath = m_keyPath->text().trimmed();
+    // For Public Key the secret field is the passphrase; otherwise a password.
+    if (p.authMethod == core::SshAuthMethod::PublicKey)
+        p.passphrase = m_password->text();
+    else
+        p.password = m_password->text();
     return p;
 }
 

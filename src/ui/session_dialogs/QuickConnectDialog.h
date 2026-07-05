@@ -38,6 +38,8 @@ private:
     QLineEdit *m_host = nullptr;
     QSpinBox *m_port = nullptr;
     QLineEdit *m_username = nullptr;
+    QComboBox *m_authMethod = nullptr;
+    QLineEdit *m_keyPath = nullptr;
     QLineEdit *m_password = nullptr;
     QCheckBox *m_saveSession = nullptr;
     QCheckBox *m_savePassword = nullptr;

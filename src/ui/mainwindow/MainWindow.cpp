@@ -411,9 +411,15 @@ void MainWindow::startSession(const core::ConnectionProfile &profile,
     params.host = profile.host;
     params.port = profile.port;
     params.username = profile.username;
-    params.password = password;
     params.cols = profile.cols;
     params.rows = profile.rows;
+    // core::AuthMethod and core::SshAuthMethod share ordering.
+    params.authMethod = static_cast<core::SshAuthMethod>(profile.authMethod);
+    params.privateKeyPath = profile.privateKeyPath;
+    if (profile.authMethod == core::AuthMethod::PublicKey)
+        params.passphrase = password;
+    else
+        params.password = password;
 
     auto *view = new TerminalWidget(params, this);
 
@@ -449,7 +455,12 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
     params.host = profile.host;
     params.port = profile.port;
     params.username = profile.username;
-    params.password = password;
+    params.authMethod = static_cast<core::SshAuthMethod>(profile.authMethod);
+    params.privateKeyPath = profile.privateKeyPath;
+    if (profile.authMethod == core::AuthMethod::PublicKey)
+        params.passphrase = password;
+    else
+        params.password = password;
 
     const QString host = profile.host;
     const quint16 port = profile.port;
