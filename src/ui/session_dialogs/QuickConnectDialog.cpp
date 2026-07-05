@@ -51,7 +51,8 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
     m_protocol->addItem(tr("FTP"), static_cast<int>(core::Protocol::FTP));
     m_protocol->addItem(tr("FTPS"), static_cast<int>(core::Protocol::FTPS));
     m_protocol->addItem(tr("Telnet"), static_cast<int>(core::Protocol::TELNET));
-    // Default the port to the protocol's usual value.
+    m_protocol->addItem(tr("Serial"), static_cast<int>(core::Protocol::SERIAL));
+    // Default the port and relabel the host field per protocol.
     connect(m_protocol, &QComboBox::currentIndexChanged, this, [this](int) {
         const auto proto = static_cast<core::Protocol>(m_protocol->currentData().toInt());
         int port = 22;
@@ -60,6 +61,14 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
         else if (proto == core::Protocol::TELNET)
             port = 23;
         m_port->setValue(port);
+        const bool serial = proto == core::Protocol::SERIAL;
+        // For serial, the "hostname" field holds the port name (COM3, ttyUSB0)
+        // and the numeric port is repurposed as the baud rate.
+        m_host->setPlaceholderText(serial ? tr("serial port, e.g. COM3")
+                                          : tr("hostname or IP"));
+        if (serial)
+            m_port->setValue(115200);
+        m_port->setMaximum(serial ? 4000000 : 65535);
     });
 
     auto *form = new QFormLayout;

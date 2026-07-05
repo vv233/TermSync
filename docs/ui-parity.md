@@ -28,7 +28,7 @@ Legend: `→ Mn` = target milestone.
 - [x] **M11** Port forwarding (local + dynamic SOCKS)  ✅ *PortForwarder (own SSH session + QTcpServer + libssh2 direct-tcpip piping); SOCKS5 parser 9 unit tests. Live forward needs a reachable target through the server; remote-forward + Session Options panel are follow-ups*
 - [x] **M12** SCP + X/Y/ZMODEM primitives  ✅ *SCP download/upload on the SSH session (libssh2_scp); X/Y/ZMODEM framing — CRC-16/XMODEM, CRC-32, 128/1024 block encode/parse, ZDLE escaping — 7 unit tests. Full interactive ZMODEM rz/sz terminal session is a follow-up*
 - [x] **M13** Telnet  ✅ *AbstractTerminalConnection base lets TerminalWidget drive any protocol; TelnetConnection (IAC negotiation, NAWS, terminal-type) verified live against telehack.com; SSH regression-verified. rlogin is a thin follow-up variant*
-- [ ] **M14** Serial
+- [x] **M14** Serial  ✅ *SerialConnection via the native OS serial API (Win32 CreateFile/ReadFile + POSIX termios) on a worker thread — no Qt SerialPort dep; wired into Quick Connect (Serial protocol, baud) and MainWindow. Code-complete; live test needs a real/virtual serial device the sandbox lacks*
 - [ ] **M15** Scripting engine
 - [ ] **M16** TN3270 / TN5250 host emulation
 - [ ] **M17** Firewall/proxy + advanced auth (Kerberos/GSSAPI/X.509)

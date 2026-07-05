@@ -19,6 +19,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "serial/SerialConnection.h"
 #include "session_dialogs/QuickConnectDialog.h"
 #include "telnet/TelnetConnection.h"
 #include "terminal_view/TerminalWidget.h"
@@ -242,6 +243,8 @@ void MainWindow::openQuickConnect()
         startSession(profile, password);
     else if (profile.protocol == core::Protocol::TELNET)
         startTelnetSession(profile);
+    else if (profile.protocol == core::Protocol::SERIAL)
+        startSerialSession(profile);
     else
         startSftpSession(profile, password);
 }
@@ -340,6 +343,8 @@ void MainWindow::onSessionActivated(QTreeWidgetItem *item, int)
                 connectProfile(p);
             else if (p.protocol == core::Protocol::TELNET)
                 startTelnetSession(p);
+            else if (p.protocol == core::Protocol::SERIAL)
+                startSerialSession(p);
             else
                 connectProfileSftp(p);
             return;
@@ -516,6 +521,27 @@ void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
 
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (Telnet) to %1...").arg(profile.host), 4000);
+}
+
+void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
+{
+    core::SerialParams sp;
+    sp.portName = profile.host;                 // host field holds the port name
+    sp.baudRate = profile.port ? profile.port : 115200; // port field = baud rate
+
+    auto *conn = new core::SerialConnection;
+    auto *view = new TerminalWidget(conn, this);
+    connect(view, &TerminalWidget::statusMessage, this,
+            [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+
+    const QString baseTitle = profile.name.isEmpty() ? sp.portName : profile.name;
+    const int index = m_sessionTabs->addTab(view, baseTitle);
+    m_sessionTabs->setCurrentIndex(index);
+    view->setFocus();
+
+    conn->open(sp);
+    statusBar()->showMessage(
+        tr("Opening serial %1 @ %2 baud...").arg(sp.portName).arg(sp.baudRate), 4000);
 }
 
 bool MainWindow::verifyHostKey(const QString &host, quint16 port,

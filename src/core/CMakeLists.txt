@@ -20,6 +20,8 @@ add_library(termsync_core STATIC
     ssh/PortForwarder.cpp
     telnet/TelnetConnection.h
     telnet/TelnetConnection.cpp
+    serial/SerialConnection.h
+    serial/SerialConnection.cpp
 )
 
 target_include_directories(termsync_core
