@@ -1,6 +1,6 @@
 # Unit tests. GoogleTest is provided by vcpkg (the "tests" feature).
 find_package(GTest CONFIG REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Sql Network)
 
 add_executable(termsync_unit_tests
     unit/test_main.cpp
@@ -9,6 +9,7 @@ add_executable(termsync_unit_tests
     unit/profile_store_test.cpp
     unit/sync_diff_test.cpp
     unit/socks5_test.cpp
+    unit/xymodem_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests
@@ -19,6 +20,7 @@ target_link_libraries(termsync_unit_tests
         termsync_transfer
         Qt6::Core
         Qt6::Sql
+        Qt6::Network
 )
 
 termsync_deploy_qsqlite(termsync_unit_tests)

@@ -482,6 +482,113 @@ bool SftpFileEngine::authenticate(const core::SshConnectionParams &params)
     return ok;
 }
 
+bool SftpFileEngine::scpDownload(const QString &remotePath, const QString &localPath,
+                                 ProgressFn progress, const std::atomic<bool> *cancel)
+{
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    if (!session) { setError(QStringLiteral("Not connected")); return false; }
+
+    libssh2_struct_stat st{};
+    const QByteArray remote = remotePath.toUtf8();
+    LIBSSH2_CHANNEL *channel = libssh2_scp_recv2(session, remote.constData(), &st);
+    if (!channel) {
+        setError(QStringLiteral("SCP: could not open remote file: %1").arg(remotePath));
+        return false;
+    }
+
+    QFile local(localPath);
+    if (!local.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        libssh2_channel_free(channel);
+        setError(local.errorString());
+        return false;
+    }
+
+    const quint64 total = static_cast<quint64>(st.st_size);
+    quint64 got = 0;
+    char buf[16384];
+    while (got < total) {
+        if (cancel && cancel->load()) {
+            libssh2_channel_free(channel);
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
+        qint64 want = static_cast<qint64>(sizeof(buf));
+        if (total - got < static_cast<quint64>(want))
+            want = static_cast<qint64>(total - got);
+        const ssize_t n = libssh2_channel_read(channel, buf, want);
+        if (n < 0 && n != LIBSSH2_ERROR_EAGAIN) {
+            libssh2_channel_free(channel);
+            setError(QStringLiteral("SCP read error"));
+            return false;
+        }
+        if (n > 0) {
+            local.write(buf, n);
+            got += static_cast<quint64>(n);
+            if (progress)
+                progress(got, total);
+        }
+    }
+    libssh2_channel_send_eof(channel);
+    libssh2_channel_free(channel);
+    return true;
+}
+
+bool SftpFileEngine::scpUpload(const QString &localPath, const QString &remotePath,
+                               quint32 mode, ProgressFn progress,
+                               const std::atomic<bool> *cancel)
+{
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    if (!session) { setError(QStringLiteral("Not connected")); return false; }
+
+    QFile local(localPath);
+    if (!local.open(QIODevice::ReadOnly)) {
+        setError(local.errorString());
+        return false;
+    }
+    const quint64 total = static_cast<quint64>(local.size());
+
+    const QByteArray remote = remotePath.toUtf8();
+    LIBSSH2_CHANNEL *channel = libssh2_scp_send64(
+        session, remote.constData(), mode & 0777,
+        static_cast<libssh2_int64_t>(total), 0, 0);
+    if (!channel) {
+        setError(QStringLiteral("SCP: could not create remote file: %1").arg(remotePath));
+        return false;
+    }
+
+    quint64 sent = 0;
+    while (!local.atEnd()) {
+        if (cancel && cancel->load()) {
+            libssh2_channel_free(channel);
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
+        const QByteArray chunk = local.read(16384);
+        const char *ptr = chunk.constData();
+        qsizetype remaining = chunk.size();
+        while (remaining > 0) {
+            const ssize_t n = libssh2_channel_write(channel, ptr, remaining);
+            if (n == LIBSSH2_ERROR_EAGAIN)
+                continue;
+            if (n < 0) {
+                libssh2_channel_free(channel);
+                setError(QStringLiteral("SCP write error"));
+                return false;
+            }
+            ptr += n;
+            remaining -= n;
+            sent += static_cast<quint64>(n);
+        }
+        if (progress)
+            progress(sent, total);
+    }
+    libssh2_channel_send_eof(channel);
+    libssh2_channel_wait_eof(channel);
+    libssh2_channel_wait_closed(channel);
+    libssh2_channel_free(channel);
+    return true;
+}
+
 void SftpFileEngine::setError(const QString &message)
 {
     m_lastError = message;

@@ -39,6 +39,15 @@ public:
     bool setPermissions(const QString &remotePath, quint32 mode) override;
     bool statSize(const QString &remotePath, quint64 *size) override;
 
+    // SCP transfers over the same authenticated session (M12). SCP is a
+    // separate wire protocol from SFTP but shares the libssh2 session.
+    bool scpDownload(const QString &remotePath, const QString &localPath,
+                     ProgressFn progress = {},
+                     const std::atomic<bool> *cancel = nullptr);
+    bool scpUpload(const QString &localPath, const QString &remotePath,
+                   quint32 mode = 0644, ProgressFn progress = {},
+                   const std::atomic<bool> *cancel = nullptr);
+
 private:
     bool openSocket(const QString &host, quint16 port);
     bool authenticate(const core::SshConnectionParams &params);
