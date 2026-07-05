@@ -226,7 +226,11 @@ void MainWindow::openQuickConnect()
         }
     }
 
-    startSession(profile, password);
+    // SSH2 opens a terminal; file-transfer protocols open the dual-pane browser.
+    if (profile.protocol == core::Protocol::SSH2)
+        startSession(profile, password);
+    else
+        startSftpSession(profile, password);
 }
 
 void MainWindow::openQuickSftp()
@@ -317,7 +321,12 @@ void MainWindow::onSessionActivated(QTreeWidgetItem *item, int)
         return; // a folder node
     for (const core::ConnectionProfile &p : m_profiles) {
         if (p.id == id) {
-            connectProfile(p);
+            // SSH2 defaults to a terminal; file-transfer protocols open the
+            // dual-pane browser.
+            if (p.protocol == core::Protocol::SSH2)
+                connectProfile(p);
+            else
+                connectProfileSftp(p);
             return;
         }
     }
@@ -447,7 +456,7 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
     const QString expectedFp =
         m_profileStore ? m_profileStore->knownFingerprint(host, port) : QString();
 
-    auto *view = new DualPaneBrowser(params, expectedFp, this);
+    auto *view = new DualPaneBrowser(params, expectedFp, profile.protocol, this);
 
     // Trust-on-first-use: persist a newly-seen fingerprint; warn on mismatch.
     connect(view, &DualPaneBrowser::hostKeyFingerprintReceived, this,

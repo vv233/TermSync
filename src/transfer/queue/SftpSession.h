@@ -5,7 +5,8 @@
 #include <QVector>
 #include <functional>
 
-#include "sftp/SftpFileEngine.h"
+#include "FileEngine.h"
+#include "model/ConnectionProfile.h"
 #include "ssh/SshConnection.h"
 
 class QThread;
@@ -43,7 +44,9 @@ class SftpSession : public QObject
 
 public:
     SftpSession(const core::SshConnectionParams &params,
-                const QString &expectedFingerprint, QObject *parent = nullptr);
+                const QString &expectedFingerprint,
+                core::Protocol protocol = core::Protocol::SSH2,
+                QObject *parent = nullptr);
     ~SftpSession() override;
 
     // Queues a transfer and returns its assigned id.

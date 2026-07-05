@@ -1,68 +1,43 @@
 #pragma once
 
-#include <QDateTime>
-#include <QString>
-#include <QVector>
-#include <atomic>
-#include <functional>
-
-#include "ssh/SshConnection.h"
+#include "FileEngine.h"
 
 namespace termsync::transfer {
 
-struct SftpEntry
-{
-    QString name;
-    QString longName;
-    quint64 size = 0;
-    quint32 permissions = 0;
-    QDateTime modifiedAt;
-    bool isDirectory = false;
-    bool isSymlink = false;
-};
-
-// Blocking SFTP engine for M5. It intentionally has no Widgets dependency, so
-// M6 can put it behind a transfer worker/queue without changing the protocol
-// surface.
-class SftpFileEngine
+// Blocking SFTP engine (libssh2). No Widgets dependency, so it sits behind the
+// transfer worker/queue unchanged.
+class SftpFileEngine : public FileEngine
 {
 public:
-    using HostKeyVerifier = std::function<bool(const QString &fingerprint)>;
-
     SftpFileEngine();
-    ~SftpFileEngine();
+    ~SftpFileEngine() override;
 
     SftpFileEngine(const SftpFileEngine &) = delete;
     SftpFileEngine &operator=(const SftpFileEngine &) = delete;
 
     bool connectToHost(const core::SshConnectionParams &params,
-                       HostKeyVerifier verifier = {});
-    void disconnectFromHost();
-    bool isConnected() const;
+                       HostKeyVerifier verifier = {}) override;
+    void disconnectFromHost() override;
+    bool isConnected() const override;
 
-    QString hostKeyFingerprint() const { return m_hostKeyFingerprint; }
-    QString lastError() const { return m_lastError; }
+    QString hostKeyFingerprint() const override { return m_hostKeyFingerprint; }
+    QString lastError() const override { return m_lastError; }
 
-    using ProgressFn = std::function<void(quint64 done, quint64 total)>;
+    bool listDirectory(const QString &remotePath, QVector<FileEntry> *entries) override;
 
-    bool listDirectory(const QString &remotePath, QVector<SftpEntry> *entries);
-
-    // Transfers report progress via `progress` and abort early if `*cancel`
-    // becomes true (both optional).
     bool downloadFile(const QString &remotePath, const QString &localPath,
                       ProgressFn progress = {},
-                      const std::atomic<bool> *cancel = nullptr);
+                      const std::atomic<bool> *cancel = nullptr) override;
     bool uploadFile(const QString &localPath, const QString &remotePath,
                     ProgressFn progress = {},
-                    const std::atomic<bool> *cancel = nullptr);
+                    const std::atomic<bool> *cancel = nullptr) override;
 
-    // Remote filesystem operations (M6).
-    bool makeDirectory(const QString &remotePath);
-    bool removeFile(const QString &remotePath);
-    bool removeDirectory(const QString &remotePath);
-    bool rename(const QString &fromPath, const QString &toPath);
-    bool setPermissions(const QString &remotePath, quint32 mode);
-    bool statSize(const QString &remotePath, quint64 *size);
+    bool makeDirectory(const QString &remotePath) override;
+    bool removeFile(const QString &remotePath) override;
+    bool removeDirectory(const QString &remotePath) override;
+    bool rename(const QString &fromPath, const QString &toPath) override;
+    bool setPermissions(const QString &remotePath, quint32 mode) override;
+    bool statSize(const QString &remotePath, quint64 *size) override;
 
 private:
     bool openSocket(const QString &host, quint16 port);

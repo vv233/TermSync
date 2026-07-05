@@ -39,10 +39,10 @@ QString humanSize(quint64 bytes)
 
 DualPaneBrowser::DualPaneBrowser(const core::SshConnectionParams &params,
                                  const QString &expectedFingerprint,
-                                 QWidget *parent)
+                                 core::Protocol protocol, QWidget *parent)
     : QWidget(parent)
 {
-    m_session = new transfer::SftpSession(params, expectedFingerprint, this);
+    m_session = new transfer::SftpSession(params, expectedFingerprint, protocol, this);
 
     connect(m_session, &transfer::SftpSession::connected, this,
             &DualPaneBrowser::onConnected);

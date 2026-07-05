@@ -3,6 +3,7 @@
 #include <QHash>
 #include <QWidget>
 
+#include "model/ConnectionProfile.h"
 #include "queue/SftpSession.h"
 #include "ssh/SshConnection.h"
 
@@ -23,7 +24,9 @@ class DualPaneBrowser : public QWidget
 
 public:
     DualPaneBrowser(const core::SshConnectionParams &params,
-                    const QString &expectedFingerprint, QWidget *parent = nullptr);
+                    const QString &expectedFingerprint,
+                    core::Protocol protocol = core::Protocol::SSH2,
+                    QWidget *parent = nullptr);
 
 signals:
     void statusMessage(const QString &message);

@@ -6,6 +6,10 @@
 #include <QSet>
 #include <QThread>
 #include <atomic>
+#include <memory>
+
+#include "ftp/FtpFileEngine.h"
+#include "sftp/SftpFileEngine.h"
 
 namespace termsync::transfer {
 
@@ -18,10 +22,17 @@ class SftpWorker : public QObject
 
 public:
     SftpWorker(const core::SshConnectionParams &params,
-               const QString &expectedFingerprint)
+               const QString &expectedFingerprint, core::Protocol protocol)
         : m_params(params)
         , m_expected(expectedFingerprint)
     {
+        if (protocol == core::Protocol::FTP || protocol == core::Protocol::FTPS) {
+            auto ftp = std::make_unique<FtpFileEngine>();
+            ftp->setExplicitTls(protocol == core::Protocol::FTPS);
+            m_engine = std::move(ftp);
+        } else {
+            m_engine = std::make_unique<SftpFileEngine>();
+        }
     }
 
 public slots:
@@ -32,8 +43,8 @@ public slots:
             // First contact (no stored key) trusts; otherwise require a match.
             return m_expected.isEmpty() || fp == m_expected;
         };
-        if (!m_engine.connectToHost(m_params, verifier)) {
-            emit connectionFailed(m_engine.lastError());
+        if (!m_engine->connectToHost(m_params, verifier)) {
+            emit connectionFailed(m_engine->lastError());
             return;
         }
         emit hostKeyFingerprint(m_seenFingerprint);
@@ -43,39 +54,39 @@ public slots:
     void doList(const QString &path)
     {
         QVector<SftpEntry> entries;
-        if (m_engine.listDirectory(path, &entries))
+        if (m_engine->listDirectory(path, &entries))
             emit directoryListed(path, entries);
         else
-            emit operationFinished(QStringLiteral("list"), false, m_engine.lastError());
+            emit operationFinished(QStringLiteral("list"), false, m_engine->lastError());
     }
 
     void doMkdir(const QString &path)
     {
-        const bool ok = m_engine.makeDirectory(path);
+        const bool ok = m_engine->makeDirectory(path);
         emit operationFinished(QStringLiteral("mkdir"), ok,
-                               ok ? path : m_engine.lastError());
+                               ok ? path : m_engine->lastError());
     }
 
     void doRemove(const QString &path, bool isDir)
     {
-        const bool ok = isDir ? m_engine.removeDirectory(path)
-                              : m_engine.removeFile(path);
+        const bool ok = isDir ? m_engine->removeDirectory(path)
+                              : m_engine->removeFile(path);
         emit operationFinished(QStringLiteral("remove"), ok,
-                               ok ? path : m_engine.lastError());
+                               ok ? path : m_engine->lastError());
     }
 
     void doRename(const QString &from, const QString &to)
     {
-        const bool ok = m_engine.rename(from, to);
+        const bool ok = m_engine->rename(from, to);
         emit operationFinished(QStringLiteral("rename"), ok,
-                               ok ? to : m_engine.lastError());
+                               ok ? to : m_engine->lastError());
     }
 
     void doChmod(const QString &path, quint32 mode)
     {
-        const bool ok = m_engine.setPermissions(path, mode);
+        const bool ok = m_engine->setPermissions(path, mode);
         emit operationFinished(QStringLiteral("chmod"), ok,
-                               ok ? path : m_engine.lastError());
+                               ok ? path : m_engine->lastError());
     }
 
     void enqueue(const TransferItem &item)
@@ -129,13 +140,13 @@ public slots:
 
         bool ok = false;
         if (item.direction == TransferItem::Download)
-            ok = m_engine.downloadFile(item.remotePath, item.localPath, progress,
-                                       &m_cancelFlag);
+            ok = m_engine->downloadFile(item.remotePath, item.localPath, progress,
+                                        &m_cancelFlag);
         else
-            ok = m_engine.uploadFile(item.localPath, item.remotePath, progress,
-                                     &m_cancelFlag);
+            ok = m_engine->uploadFile(item.localPath, item.remotePath, progress,
+                                      &m_cancelFlag);
 
-        emit transferFinished(item.id, ok, ok ? QString() : m_engine.lastError());
+        emit transferFinished(item.id, ok, ok ? QString() : m_engine->lastError());
 
         m_busy = false;
         m_activeId = 0;
@@ -156,7 +167,7 @@ private:
     core::SshConnectionParams m_params;
     QString m_expected;
     QString m_seenFingerprint;
-    SftpFileEngine m_engine;
+    std::unique_ptr<FileEngine> m_engine;
 
     QMutex m_queueMutex;
     QQueue<TransferItem> m_queue;
@@ -170,7 +181,8 @@ private:
 // SftpSession — GUI-thread facade.
 // ---------------------------------------------------------------------------
 SftpSession::SftpSession(const core::SshConnectionParams &params,
-                         const QString &expectedFingerprint, QObject *parent)
+                         const QString &expectedFingerprint,
+                         core::Protocol protocol, QObject *parent)
     : QObject(parent)
 {
     qRegisterMetaType<termsync::transfer::TransferItem>();
@@ -178,7 +190,7 @@ SftpSession::SftpSession(const core::SshConnectionParams &params,
     qRegisterMetaType<QVector<termsync::transfer::SftpEntry>>();
 
     m_thread = new QThread(this);
-    m_worker = new SftpWorker(params, expectedFingerprint);
+    m_worker = new SftpWorker(params, expectedFingerprint, protocol);
     m_worker->moveToThread(m_thread);
 
     connect(m_worker, &SftpWorker::connected, this, &SftpSession::connected);

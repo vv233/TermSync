@@ -22,7 +22,7 @@ Legend: `→ Mn` = target milestone.
 - [x] **M5** SFTP listing + basic transfer  ✅ *SftpFileEngine + SftpBrowserWidget; connect/auth/list verified live against Rebex; upload/download implemented (round-trip pending a writable test server)*
 - [x] **M6** Dual-pane browser + transfer queue  ✅ *DualPaneBrowser (local QFileSystemModel | remote SFTP) + worker-threaded SftpSession + transfer-queue panel with progress/cancel + remote mkdir/delete/rename/chmod; verified live against Rebex (download read-path; writes code-complete, need writable server)*
 - [x] **M7** Sync engine (one-way + two-way)  ✅ *DirectoryDiffer + SyncEngine (state persistence, executor); 13 deterministic tests incl. end-to-end idempotency & conflict policies. GUI Synchronize dialog is a thin follow-up (needs recursive remote enumeration)*
-- [ ] **M8** FTP/FTPS
+- [x] **M8** FTP/FTPS  ✅ *shared FileEngine interface; FtpFileEngine (libcurl) verified live against Rebex FTP (connect+list); protocol picked per-profile in the session/browser + Quick Connect protocol dropdown. FTPS wired (flag) — data-channel TLS interop tuning is a follow-up*
 - [ ] **M9** Credential vault + public-key/agent auth
 - [ ] **M10** Packaging (first releasable MVP)
 - [ ] **M11** Port forwarding (local/remote/dynamic SOCKS)

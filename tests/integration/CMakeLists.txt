@@ -29,6 +29,15 @@ target_link_libraries(credential_smoke
         Qt6::Core
 )
 
+add_executable(ftp_smoke
+    ftp_smoke.cpp
+)
+target_link_libraries(ftp_smoke
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
 # GUI render smoke test (needs Qt Widgets + a GUI platform).
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 add_executable(terminal_render_smoke

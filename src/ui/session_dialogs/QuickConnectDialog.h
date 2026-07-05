@@ -6,6 +6,7 @@
 #include "ssh/SshConnection.h"
 
 class QCheckBox;
+class QComboBox;
 class QLineEdit;
 class QSpinBox;
 
@@ -33,6 +34,7 @@ public:
     core::ConnectionProfile toProfile() const;
 
 private:
+    QComboBox *m_protocol = nullptr;
     QLineEdit *m_host = nullptr;
     QSpinBox *m_port = nullptr;
     QLineEdit *m_username = nullptr;

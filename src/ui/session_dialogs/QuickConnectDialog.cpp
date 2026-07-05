@@ -1,6 +1,7 @@
 #include "session_dialogs/QuickConnectDialog.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QLineEdit>
@@ -30,9 +31,21 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
     m_password = new QLineEdit(this);
     m_password->setEchoMode(QLineEdit::Password);
 
+    m_protocol = new QComboBox(this);
+    // userData carries the core::Protocol enum value.
+    m_protocol->addItem(tr("SSH2"), static_cast<int>(core::Protocol::SSH2));
+    m_protocol->addItem(tr("SFTP"), static_cast<int>(core::Protocol::SFTP_ONLY));
+    m_protocol->addItem(tr("FTP"), static_cast<int>(core::Protocol::FTP));
+    m_protocol->addItem(tr("FTPS"), static_cast<int>(core::Protocol::FTPS));
+    // Default the port to the protocol's usual value.
+    connect(m_protocol, &QComboBox::currentIndexChanged, this, [this](int) {
+        const auto proto = static_cast<core::Protocol>(m_protocol->currentData().toInt());
+        const bool ftp = proto == core::Protocol::FTP || proto == core::Protocol::FTPS;
+        m_port->setValue(ftp ? 21 : 22);
+    });
+
     auto *form = new QFormLayout;
-    form->addRow(tr("Protocol:"), new QLineEdit(QStringLiteral("SSH2"), this));
-    form->itemAt(0, QFormLayout::FieldRole)->widget()->setEnabled(false);
+    form->addRow(tr("Protocol:"), m_protocol);
     form->addRow(tr("Hostname:"), m_host);
     form->addRow(tr("Port:"), m_port);
     form->addRow(tr("Username:"), m_username);
@@ -89,7 +102,7 @@ core::ConnectionProfile QuickConnectDialog::toProfile() const
     p.username = m_username->text().trimmed();
     // Name defaults to user@host when saving; the session tree shows this.
     p.name = p.username.isEmpty() ? p.host : (p.username + '@' + p.host);
-    p.protocol = core::Protocol::SSH2;
+    p.protocol = static_cast<core::Protocol>(m_protocol->currentData().toInt());
     p.authMethod = core::AuthMethod::Password;
     p.savePassword = savePassword();
     return p;
