@@ -14,6 +14,8 @@ add_library(termsync_core STATIC
     credential/CredentialStore.cpp
     net/Socks5.h
     net/Socks5.cpp
+    net/ProxyClient.h
+    net/ProxyClient.cpp
     ssh/SshConnection.h
     ssh/SshConnection.cpp
     ssh/PortForwarder.h

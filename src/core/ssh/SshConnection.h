@@ -5,6 +5,7 @@
 #include <QString>
 
 #include "AbstractTerminalConnection.h"
+#include "net/ProxyClient.h"
 
 class QThread;
 
@@ -31,6 +32,9 @@ struct SshConnectionParams
     SshAuthMethod authMethod = SshAuthMethod::Password;
     QString privateKeyPath;
     QString passphrase;
+
+    // Firewall/proxy to reach the host through (M17). None = direct connect.
+    ProxyConfig proxy;
 
     // Initial PTY size (updated later via SshConnection::resize()).
     int cols = 80;

@@ -9,6 +9,7 @@ add_executable(termsync_unit_tests
     unit/profile_store_test.cpp
     unit/sync_diff_test.cpp
     unit/socks5_test.cpp
+    unit/proxy_client_test.cpp
     unit/xymodem_test.cpp
     unit/script_engine_test.cpp
     unit/tn3270_stream_test.cpp

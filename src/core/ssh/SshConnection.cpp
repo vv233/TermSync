@@ -216,18 +216,16 @@ private slots:
     }
 
 private:
-    bool openSocket()
+    // Blocking connect to host:port, returning a native socket (or invalid).
+    static socket_t tcpConnect(const QByteArray &host, quint16 port)
     {
         struct addrinfo hints{};
         hints.ai_family = AF_UNSPEC;
         hints.ai_socktype = SOCK_STREAM;
-
-        const QByteArray host = m_params.host.toUtf8();
-        const QByteArray port = QByteArray::number(m_params.port);
+        const QByteArray portStr = QByteArray::number(port);
         struct addrinfo *res = nullptr;
-        if (getaddrinfo(host.constData(), port.constData(), &hints, &res) != 0 || !res)
-            return false;
-
+        if (getaddrinfo(host.constData(), portStr.constData(), &hints, &res) != 0 || !res)
+            return kInvalidSocket;
         socket_t sock = kInvalidSocket;
         for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
             sock = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
@@ -239,7 +237,74 @@ private:
             sock = kInvalidSocket;
         }
         freeaddrinfo(res);
+        return sock;
+    }
 
+    // Blocking send-all / recv-some on a native socket.
+    static bool sendAll(socket_t s, const QByteArray &data)
+    {
+        int off = 0;
+        while (off < data.size()) {
+            const int n = ::send(s, data.constData() + off, data.size() - off, 0);
+            if (n <= 0)
+                return false;
+            off += n;
+        }
+        return true;
+    }
+    static QByteArray recvSome(socket_t s)
+    {
+        char buf[512];
+        const int n = ::recv(s, buf, sizeof(buf), 0);
+        return n > 0 ? QByteArray(buf, n) : QByteArray();
+    }
+
+    // Performs the proxy handshake so the socket ends up connected to the target.
+    bool proxyHandshake(socket_t s)
+    {
+        const ProxyConfig &p = m_params.proxy;
+        if (p.type == ProxyConfig::Type::Socks5) {
+            const bool userPass = !p.username.isEmpty();
+            if (!sendAll(s, proxy::socks5Greeting(userPass)))
+                return false;
+            const int method = proxy::socks5ParseMethod(recvSome(s));
+            if (method < 0)
+                return false;
+            if (method == 0x02) {
+                if (!sendAll(s, proxy::socks5UserPass(p.username, p.password)))
+                    return false;
+                if (!proxy::socks5UserPassOk(recvSome(s)))
+                    return false;
+            }
+            if (!sendAll(s, proxy::socks5ConnectRequest(m_params.host, m_params.port)))
+                return false;
+            return proxy::socks5ConnectOk(recvSome(s));
+        }
+        if (p.type == ProxyConfig::Type::Http) {
+            if (!sendAll(s, proxy::httpConnectRequest(m_params.host, m_params.port,
+                                                      p.username, p.password)))
+                return false;
+            return proxy::httpConnectOk(recvSome(s));
+        }
+        return true;
+    }
+
+    bool openSocket()
+    {
+        const ProxyConfig &proxy = m_params.proxy;
+        socket_t sock;
+        if (proxy.enabled()) {
+            // Connect to the proxy, then tunnel to the real host.
+            sock = tcpConnect(proxy.host.toUtf8(), proxy.port);
+            if (sock == kInvalidSocket)
+                return false;
+            if (!proxyHandshake(sock)) {
+                closeSocket(sock);
+                return false;
+            }
+        } else {
+            sock = tcpConnect(m_params.host.toUtf8(), m_params.port);
+        }
         if (sock == kInvalidSocket)
             return false;
         m_socket = sock;
