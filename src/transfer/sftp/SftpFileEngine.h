@@ -50,6 +50,8 @@ public:
     void setRelentless(bool relentless) override { m_relentless = relentless; }
     void setPreservePermissions(bool preserve) override { m_preservePerms = preserve; }
     void setAsciiMode(bool ascii) override { m_asciiMode = ascii; }
+    void setKeepaliveSeconds(int seconds) override { m_keepaliveSeconds = seconds; }
+    int keepalive() override;
 
     // Symlink helpers (SFTP-specific). readlink returns the raw link target;
     // realpath canonicalises a path on the server; createSymlink makes one.
@@ -118,6 +120,7 @@ private:
     bool m_relentless = false;          // reconnect + continue on a dropped connection
     bool m_preservePerms = false;       // chmod remote to match local after upload
     bool m_asciiMode = false;           // translate line endings (text transfers)
+    int m_keepaliveSeconds = 0;         // 0 = keepalive off
 
     bool asciiUpload(const QString &localPath, const QString &remotePath,
                      ProgressFn progress, const std::atomic<bool> *cancel);

@@ -149,6 +149,15 @@ int main(int argc, char *argv[])
         return fail("move: destination missing") ? 1 : 1;
     std::fprintf(stderr, "[ok] move (rename)\n");
 
+    // --- Keepalive: a configured session sends and reports the next-due time. ---
+    termsync::transfer::SftpFileEngine ka;
+    ka.setKeepaliveSeconds(5);
+    if (!ka.connectToHost(p, [](const QString &) { return true; }))
+        return fail("keepalive connect", ka.lastError()) ? 1 : 1;
+    if (ka.keepalive() < 0)
+        return fail("keepalive send") ? 1 : 1;
+    std::fprintf(stderr, "[ok] keepalive send\n");
+
     // cleanup
     sftp.removeFile(permRemote);
     sftp.removeFile(moveRemote);

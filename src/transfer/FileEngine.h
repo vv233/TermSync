@@ -83,6 +83,11 @@ public:
     // Text mode: translate line endings during transfer (upload local->CRLF,
     // download CRLF->LF). Forces a byte-inexact sequential path.
     virtual void setAsciiMode(bool) {}
+    // Keepalive interval in seconds (0 = off). Applied on connect.
+    virtual void setKeepaliveSeconds(int) {}
+    // Send one keepalive now; returns seconds until the next is due, or -1 if
+    // unsupported / not connected. Callers poll this on an idle timer.
+    virtual int keepalive() { return -1; }
 
     // Move within the same backend. Default is a server-side rename; a backend
     // may override with something cheaper. (Cross-host moves are a caller-level

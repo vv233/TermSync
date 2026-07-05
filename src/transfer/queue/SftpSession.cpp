@@ -5,6 +5,7 @@
 #include <QQueue>
 #include <QSet>
 #include <QThread>
+#include <QTimer>
 #include <atomic>
 #include <memory>
 
@@ -37,6 +38,12 @@ public:
         // and reconnect-and-resume through brief network drops.
         m_engine->setPauseFlag(&m_pauseFlag);
         m_engine->setRelentless(true);
+
+        bool ok = false;
+        m_keepaliveSecs = qEnvironmentVariableIntValue("TERMSYNC_SSH_KEEPALIVE_SECS", &ok);
+        if (!ok)
+            m_keepaliveSecs = 30;
+        m_engine->setKeepaliveSeconds(m_keepaliveSecs);
     }
 
 public slots:
@@ -47,12 +54,42 @@ public slots:
             // First contact (no stored key) trusts; otherwise require a match.
             return m_expected.isEmpty() || fp == m_expected;
         };
-        if (!m_engine->connectToHost(m_params, verifier)) {
-            emit connectionFailed(m_engine->lastError());
-            return;
+        // Busy-station retry: transient connect failures (refused / busy / reset)
+        // retry with backoff, but auth / host-key rejections fail immediately.
+        bool ok = false;
+        int retries = qEnvironmentVariableIntValue("TERMSYNC_SSH_CONNECT_RETRIES", &ok);
+        if (!ok)
+            retries = 3;
+        for (int attempt = 0;; ++attempt) {
+            if (m_engine->connectToHost(m_params, verifier))
+                break;
+            const QString err = m_engine->lastError();
+            const bool permanent = err.contains(QStringLiteral("authentication"), Qt::CaseInsensitive) ||
+                                   err.contains(QStringLiteral("rejected"), Qt::CaseInsensitive);
+            if (permanent || attempt >= retries) {
+                emit connectionFailed(err);
+                return;
+            }
+            QThread::msleep(static_cast<unsigned long>(qMin(1000 * (attempt + 1), 5000)));
         }
         emit hostKeyFingerprint(m_seenFingerprint);
         emit connected();
+
+        // Start the idle keepalive poll (runs on this worker thread).
+        if (m_keepaliveSecs > 0 && !m_keepaliveTimer) {
+            m_keepaliveTimer = new QTimer(this);
+            m_keepaliveTimer->setInterval(m_keepaliveSecs * 1000);
+            connect(m_keepaliveTimer, &QTimer::timeout, this, &SftpWorker::keepaliveTick);
+            m_keepaliveTimer->start();
+        }
+    }
+
+    void keepaliveTick()
+    {
+        // Only when idle; during a transfer the session is already active and the
+        // event loop is blocked anyway.
+        if (!m_busy)
+            m_engine->keepalive();
     }
 
     void doList(const QString &path)
@@ -203,6 +240,8 @@ private:
     std::atomic<bool> m_pauseFlag{false};
     int m_activeId = 0;
     bool m_busy = false;
+    int m_keepaliveSecs = 0;
+    QTimer *m_keepaliveTimer = nullptr;
 };
 
 // ---------------------------------------------------------------------------

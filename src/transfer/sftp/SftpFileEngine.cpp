@@ -777,6 +777,11 @@ bool SftpFileEngine::connectToHost(const core::SshConnectionParams &params,
     }
     m_sftp = sftp;
     m_params = params;
+    // Keepalive keeps idle browser sessions from being dropped by the server or
+    // a NAT/firewall. want_reply=1 asks the server to echo, so a dead peer is
+    // detected. The caller drives it by polling keepalive() on an idle timer.
+    if (m_keepaliveSeconds > 0)
+        libssh2_keepalive_config(session, 1, static_cast<unsigned>(m_keepaliveSeconds));
     return true;
 }
 
@@ -1527,6 +1532,17 @@ bool SftpFileEngine::realpath(const QString &remotePath, QString *resolved)
     }
     *resolved = QString::fromUtf8(buffer, rc);
     return true;
+}
+
+int SftpFileEngine::keepalive()
+{
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    if (!session)
+        return -1;
+    int secondsToNext = 0;
+    if (libssh2_keepalive_send(session, &secondsToNext) != 0)
+        return -1; // send failed (likely a dead connection)
+    return secondsToNext;
 }
 
 bool SftpFileEngine::createSymlink(const QString &target, const QString &linkPath)
