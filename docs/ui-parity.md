@@ -25,7 +25,7 @@ Legend: `→ Mn` = target milestone.
 - [x] **M8** FTP/FTPS  ✅ *shared FileEngine interface; FtpFileEngine (libcurl) verified live against Rebex FTP (connect+list); protocol picked per-profile in the session/browser + Quick Connect protocol dropdown. FTPS wired (flag) — data-channel TLS interop tuning is a follow-up*
 - [x] **M9** Public-key/agent/keyboard-interactive auth  ✅ *auth dispatch in both SSH & SFTP engines (publickey-fromfile w/ passphrase, ssh-agent identities, keyboard-interactive); Quick Connect auth-method + key-file UI; password paths regression-verified live. Public-key positive test needs a controllable server; encrypted non-keychain vault still a follow-up*
 - [x] **M10** Packaging (first releasable MVP)  ✅ *About dialog, THIRD_PARTY_NOTICES, windeployqt integration + CPack (NSIS;ZIP); verified self-contained launch with Qt off PATH and produced a 35 MB distributable ZIP (NSIS .exe needs NSIS installed on the build host)*
-- [ ] **M11** Port forwarding (local/remote/dynamic SOCKS)
+- [x] **M11** Port forwarding (local + dynamic SOCKS)  ✅ *PortForwarder (own SSH session + QTcpServer + libssh2 direct-tcpip piping); SOCKS5 parser 9 unit tests. Live forward needs a reachable target through the server; remote-forward + Session Options panel are follow-ups*
 - [ ] **M12** SCP + X/Y/ZMODEM
 - [ ] **M13** Telnet / rlogin
 - [ ] **M14** Serial

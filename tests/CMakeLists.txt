@@ -8,6 +8,7 @@ add_executable(termsync_unit_tests
     unit/vt_parser_test.cpp
     unit/profile_store_test.cpp
     unit/sync_diff_test.cpp
+    unit/socks5_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests
