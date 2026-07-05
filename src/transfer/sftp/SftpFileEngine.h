@@ -5,6 +5,8 @@
 
 namespace termsync::transfer {
 
+class RateLimiter; // token-bucket throttle, defined in the .cpp
+
 // Blocking SFTP engine (libssh2). No Widgets dependency, so it sits behind the
 // transfer worker/queue unchanged.
 class SftpFileEngine : public FileEngine
@@ -39,6 +41,8 @@ public:
     bool rename(const QString &fromPath, const QString &toPath) override;
     bool setPermissions(const QString &remotePath, quint32 mode) override;
     bool statSize(const QString &remotePath, quint64 *size) override;
+    void setRateLimitBytesPerSec(quint64 bytesPerSec) override { m_rateBytesPerSec = bytesPerSec; }
+    void setResume(bool resume) override { m_resume = resume; }
     // listRecursive is inherited from FileEngine (generic walk via listDirectory).
 
     // SCP transfers over the same authenticated session (M12). SCP is a
@@ -52,16 +56,16 @@ public:
 
 private:
     bool downloadFileSequential(const QString &remotePath, const QString &localPath,
-                                quint64 total, ProgressFn progress,
+                                quint64 total, quint64 startOffset, ProgressFn progress,
                                 const std::atomic<bool> *cancel);
     bool uploadFileSequential(const QString &localPath, const QString &remotePath,
-                              quint64 total, ProgressFn progress,
+                              quint64 total, quint64 startOffset, ProgressFn progress,
                               const std::atomic<bool> *cancel);
     bool downloadFileParallel(const QString &remotePath, const QString &localPath,
-                              quint64 total, ProgressFn progress,
+                              quint64 total, quint64 startOffset, ProgressFn progress,
                               const std::atomic<bool> *cancel);
     bool uploadFileParallel(const QString &localPath, const QString &remotePath,
-                            quint64 total, ProgressFn progress,
+                            quint64 total, quint64 startOffset, ProgressFn progress,
                             const std::atomic<bool> *cancel);
     bool downloadRange(const QString &remotePath, const QString &localPath,
                        quint64 offset, quint64 length,
@@ -76,6 +80,8 @@ private:
                      ProgressFn progress, const std::atomic<bool> *cancel,
                      const std::atomic<bool> *stop);
     bool connectSibling(SftpFileEngine *engine) const;
+    // Effective cap: explicit setRateLimitBytesPerSec() wins, else the env default.
+    quint64 effectiveRateBytesPerSec() const;
 
     bool openSocket(const QString &host, quint16 port);
     bool authenticate(const core::SshConnectionParams &params);
@@ -89,6 +95,9 @@ private:
     QString m_lastError;
     QString m_hostKeyFingerprint;
     core::SshConnectionParams m_params;
+    quint64 m_rateBytesPerSec = 0;      // 0 = unlimited
+    bool m_resume = false;              // resume from destination size on next transfer
+    RateLimiter *m_limiter = nullptr;   // non-owning; shared by parallel siblings for one transfer
 };
 
 } // namespace termsync::transfer

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cerrno>
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -39,7 +40,63 @@ static constexpr socket_t kInvalidSocket = -1;
 
 namespace termsync::transfer {
 
+// Token-bucket throttle shared by all parallel workers of one transfer, so the
+// *aggregate* rate is capped (not each lane independently). consume() blocks the
+// calling thread until `bytes` of budget is available. Thread-safe.
+class RateLimiter
+{
+public:
+    explicit RateLimiter(quint64 bytesPerSec)
+        : m_rate(bytesPerSec)
+        , m_tokens(0.0) // start empty so the average converges to the cap (no free burst)
+        , m_last(std::chrono::steady_clock::now())
+    {
+    }
+
+    void consume(quint64 bytes)
+    {
+        if (m_rate == 0)
+            return;
+        std::unique_lock<std::mutex> lock(m_mutex);
+        for (;;) {
+            const auto now = std::chrono::steady_clock::now();
+            const double elapsed = std::chrono::duration<double>(now - m_last).count();
+            m_last = now;
+            m_tokens += elapsed * static_cast<double>(m_rate);
+            const double cap = static_cast<double>(m_rate); // cap burst to ~1s
+            if (m_tokens > cap)
+                m_tokens = cap;
+            if (m_tokens >= static_cast<double>(bytes)) {
+                m_tokens -= static_cast<double>(bytes);
+                return;
+            }
+            const double deficitSec =
+                (static_cast<double>(bytes) - m_tokens) / static_cast<double>(m_rate);
+            lock.unlock();
+            std::this_thread::sleep_for(std::chrono::duration<double>(deficitSec));
+            lock.lock();
+        }
+    }
+
+private:
+    const quint64 m_rate;
+    double m_tokens;
+    std::chrono::steady_clock::time_point m_last;
+    std::mutex m_mutex;
+};
+
 namespace {
+
+// Aggregate transfer cap in bytes/sec (0 = unlimited). Env is a default/override;
+// the engine's setRateLimitBytesPerSec() takes precedence when non-zero.
+quint64 rateLimitFromEnv()
+{
+    bool ok = false;
+    const int kbps = qEnvironmentVariableIntValue("TERMSYNC_SFTP_MAX_KBPS", &ok);
+    if (!ok || kbps <= 0)
+        return 0;
+    return static_cast<quint64>(kbps) * 1024ull;
+}
 
 void ensureGlobalInit()
 {
@@ -415,8 +472,8 @@ private:
 bool downloadPump(LIBSSH2_SESSION *session, socket_t socket,
                   LIBSSH2_SFTP_HANDLE *handle, QFile *local, quint64 length,
                   qsizetype bufferSize, const std::function<void(quint64)> &onBytes,
-                  const std::atomic<bool> *cancel, const std::atomic<bool> *stop,
-                  QString *error, const QString &context)
+                  RateLimiter *limiter, const std::atomic<bool> *cancel,
+                  const std::atomic<bool> *stop, QString *error, const QString &context)
 {
     BufferPipe pipe(transferPipeDepth());
     std::atomic<bool> diskOk{true};
@@ -454,6 +511,8 @@ bool downloadPump(LIBSSH2_SESSION *session, socket_t socket,
             readSftpFile(session, socket, handle, buffer.data(), want, &ioError);
         if (rc > 0) {
             buffer.truncate(rc);
+            if (limiter)
+                limiter->consume(static_cast<quint64>(rc));
             onBytes(static_cast<quint64>(rc));
             if (bounded)
                 remaining -= static_cast<quint64>(rc);
@@ -500,8 +559,8 @@ bool downloadPump(LIBSSH2_SESSION *session, socket_t socket,
 bool uploadPump(LIBSSH2_SESSION *session, socket_t socket,
                 LIBSSH2_SFTP_HANDLE *handle, QFile *local, quint64 length,
                 qsizetype bufferSize, const std::function<void(quint64)> &onBytes,
-                const std::atomic<bool> *cancel, const std::atomic<bool> *stop,
-                QString *error, const QString &context)
+                RateLimiter *limiter, const std::atomic<bool> *cancel,
+                const std::atomic<bool> *stop, QString *error, const QString &context)
 {
     BufferPipe pipe(transferPipeDepth());
     std::atomic<bool> diskOk{true};
@@ -553,6 +612,8 @@ bool uploadPump(LIBSSH2_SESSION *session, socket_t socket,
             }
             ptr += written;
             chunkRemaining -= written;
+            if (limiter)
+                limiter->consume(static_cast<quint64>(written));
             onBytes(static_cast<quint64>(written));
         }
         if (!ok)
@@ -731,18 +792,30 @@ bool SftpFileEngine::downloadFile(const QString &remotePath, const QString &loca
 
     quint64 total = 0;
     statSize(remotePath, &total); // best-effort, for progress reporting
-    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty()) {
-        if (downloadFileParallel(remotePath, localPath, total, progress, cancel))
-            return true;
-        return false;
+
+    // Resume: continue from what's already on disk. Requires a known total so we
+    // know when we're done and can size the parallel split.
+    quint64 startOffset = 0;
+    if (m_resume && total > 0) {
+        const qint64 existing = QFileInfo(localPath).size();
+        if (existing > 0)
+            startOffset = qMin(static_cast<quint64>(existing), total);
+        if (startOffset == total) {
+            if (progress)
+                progress(total, total);
+            return true; // already complete
+        }
     }
 
-    return downloadFileSequential(remotePath, localPath, total, progress, cancel);
+    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty())
+        return downloadFileParallel(remotePath, localPath, total, startOffset, progress, cancel);
+
+    return downloadFileSequential(remotePath, localPath, total, startOffset, progress, cancel);
 }
 
 bool SftpFileEngine::downloadFileSequential(const QString &remotePath, const QString &localPath,
-                                            quint64 total, ProgressFn progress,
-                                            const std::atomic<bool> *cancel)
+                                            quint64 total, quint64 startOffset,
+                                            ProgressFn progress, const std::atomic<bool> *cancel)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
     auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
@@ -762,20 +835,27 @@ bool SftpFileEngine::downloadFileSequential(const QString &remotePath, const QSt
         return false;
     }
 
+    // Resuming keeps the existing prefix and appends; a fresh transfer truncates.
     QFile local(localPath);
-    if (!local.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    const QIODevice::OpenMode mode = startOffset > 0
+        ? (QIODevice::ReadWrite)
+        : (QIODevice::WriteOnly | QIODevice::Truncate);
+    if (!local.open(mode) || (startOffset > 0 && !local.seek(static_cast<qint64>(startOffset)))) {
         closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
         setError(local.errorString());
         return false;
     }
+    if (startOffset > 0)
+        libssh2_sftp_seek64(remoteFile, static_cast<libssh2_uint64_t>(startOffset));
 
-    quint64 done = 0;
-    quint64 reported = 0;
+    RateLimiter limiter(effectiveRateBytesPerSec());
+    quint64 done = startOffset;
+    quint64 reported = startOffset;
     const bool ok = downloadPump(
         session, storedSocket(m_socket), remoteFile, &local, /*length=*/0,
         downloadBufferSize(),
         [&](quint64 delta) { done += delta; reportProgress(done, total, progress, &reported); },
-        cancel, nullptr, &ioError, remotePath);
+        &limiter, cancel, nullptr, &ioError, remotePath);
     if (!ok) {
         closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
         setError(ioError);
@@ -807,18 +887,28 @@ bool SftpFileEngine::uploadFile(const QString &localPath, const QString &remoteP
     const quint64 total = static_cast<quint64>(local.size());
     local.close();
 
-    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty()) {
-        if (uploadFileParallel(localPath, remotePath, total, progress, cancel))
-            return true;
-        return false;
+    // Resume: pick up after whatever the remote already holds.
+    quint64 startOffset = 0;
+    if (m_resume) {
+        quint64 remoteSize = 0;
+        if (statSize(remotePath, &remoteSize) && remoteSize > 0)
+            startOffset = qMin(remoteSize, total);
+        if (startOffset == total && total > 0) {
+            if (progress)
+                progress(total, total);
+            return true; // already complete
+        }
     }
 
-    return uploadFileSequential(localPath, remotePath, total, progress, cancel);
+    if (total >= parallelTransferThreshold() && !m_params.host.isEmpty())
+        return uploadFileParallel(localPath, remotePath, total, startOffset, progress, cancel);
+
+    return uploadFileSequential(localPath, remotePath, total, startOffset, progress, cancel);
 }
 
 bool SftpFileEngine::uploadFileSequential(const QString &localPath, const QString &remotePath,
-                                          quint64 total, ProgressFn progress,
-                                          const std::atomic<bool> *cancel)
+                                          quint64 total, quint64 startOffset,
+                                          ProgressFn progress, const std::atomic<bool> *cancel)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
     auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
@@ -828,16 +918,20 @@ bool SftpFileEngine::uploadFileSequential(const QString &localPath, const QStrin
     }
 
     QFile local(localPath);
-    if (!local.open(QIODevice::ReadOnly)) {
+    if (!local.open(QIODevice::ReadOnly) ||
+        (startOffset > 0 && !local.seek(static_cast<qint64>(startOffset)))) {
         setError(local.errorString());
         return false;
     }
     const QByteArray remote = remotePath.toUtf8();
     NonBlockingGuard nonblocking(session, useNonblockingPump());
     QString ioError;
+    // Resuming keeps the remote prefix (no TRUNC) and seeks to the append point.
+    unsigned long flags = LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT;
+    if (startOffset == 0)
+        flags |= LIBSSH2_FXF_TRUNC;
     LIBSSH2_SFTP_HANDLE *remoteFile = openSftpFile(
-        session, storedSocket(m_socket), sftp, remote,
-        LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
+        session, storedSocket(m_socket), sftp, remote, flags,
         LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
             LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH,
         &ioError, QStringLiteral("open for write"));
@@ -846,13 +940,17 @@ bool SftpFileEngine::uploadFileSequential(const QString &localPath, const QStrin
                      .arg(remotePath, ioError));
         return false;
     }
+    if (startOffset > 0)
+        libssh2_sftp_seek64(remoteFile, static_cast<libssh2_uint64_t>(startOffset));
 
-    quint64 done = 0;
-    quint64 reported = 0;
+    RateLimiter limiter(effectiveRateBytesPerSec());
+    quint64 done = startOffset;
+    quint64 reported = startOffset;
     const bool ok = uploadPump(
-        session, storedSocket(m_socket), remoteFile, &local, total, uploadBufferSize(),
+        session, storedSocket(m_socket), remoteFile, &local, total - startOffset,
+        uploadBufferSize(),
         [&](quint64 delta) { done += delta; reportProgress(done, total, progress, &reported); },
-        cancel, nullptr, &ioError, remotePath);
+        &limiter, cancel, nullptr, &ioError, remotePath);
     if (!ok) {
         closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
         setError(ioError);
@@ -868,15 +966,18 @@ bool SftpFileEngine::uploadFileSequential(const QString &localPath, const QStrin
 }
 
 bool SftpFileEngine::downloadFileParallel(const QString &remotePath, const QString &localPath,
-                                          quint64 total, ProgressFn progress,
-                                          const std::atomic<bool> *cancel)
+                                          quint64 total, quint64 startOffset,
+                                          ProgressFn progress, const std::atomic<bool> *cancel)
 {
     const int workers = parallelTransferCount(total, false);
     if (workers <= 1)
-        return downloadFileSequential(remotePath, localPath, total, progress, cancel);
+        return downloadFileSequential(remotePath, localPath, total, startOffset, progress, cancel);
 
+    // Resume keeps the existing prefix; a fresh transfer truncates. Either way the
+    // file must be sized to `total` so workers can seek-and-write their ranges.
     QFile local(localPath);
-    if (!local.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    if (!local.open(startOffset > 0 ? QIODevice::ReadWrite
+                                    : (QIODevice::WriteOnly | QIODevice::Truncate))) {
         setError(local.errorString());
         return false;
     }
@@ -886,18 +987,20 @@ bool SftpFileEngine::downloadFileParallel(const QString &remotePath, const QStri
     }
     local.close();
 
-    std::atomic<quint64> done{0};
-    std::atomic<quint64> reported{0};
+    std::atomic<quint64> done{startOffset};
+    std::atomic<quint64> reported{startOffset};
     std::atomic<bool> stop{false};
     QMutex errorMutex;
     QString firstError;
     std::vector<std::thread> threads;
     threads.reserve(workers);
 
-    const quint64 span = (total + static_cast<quint64>(workers) - 1) /
+    RateLimiter limiter(effectiveRateBytesPerSec()); // shared across all lanes
+    const quint64 region = total - startOffset;      // only fetch what's missing
+    const quint64 span = (region + static_cast<quint64>(workers) - 1) /
                          static_cast<quint64>(workers);
     for (int i = 0; i < workers; ++i) {
-        const quint64 offset = span * static_cast<quint64>(i);
+        const quint64 offset = startOffset + span * static_cast<quint64>(i);
         if (offset >= total)
             break;
         const quint64 length = qMin(span, total - offset);
@@ -910,6 +1013,7 @@ bool SftpFileEngine::downloadFileParallel(const QString &remotePath, const QStri
                 stop.store(true);
                 return;
             }
+            engine.m_limiter = &limiter;
             if (!engine.downloadRange(remotePath, localPath, offset, length, &done,
                                       &reported, total, progress, cancel, &stop)) {
                 QMutexLocker locker(&errorMutex);
@@ -937,12 +1041,12 @@ bool SftpFileEngine::downloadFileParallel(const QString &remotePath, const QStri
 }
 
 bool SftpFileEngine::uploadFileParallel(const QString &localPath, const QString &remotePath,
-                                        quint64 total, ProgressFn progress,
-                                        const std::atomic<bool> *cancel)
+                                        quint64 total, quint64 startOffset,
+                                        ProgressFn progress, const std::atomic<bool> *cancel)
 {
     const int workers = parallelTransferCount(total, true);
     if (workers <= 1)
-        return uploadFileSequential(localPath, remotePath, total, progress, cancel);
+        return uploadFileSequential(localPath, remotePath, total, startOffset, progress, cancel);
 
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);
     if (!sftp) {
@@ -950,30 +1054,36 @@ bool SftpFileEngine::uploadFileParallel(const QString &localPath, const QString 
         return false;
     }
 
-    const QByteArray remote = remotePath.toUtf8();
-    LIBSSH2_SFTP_HANDLE *remoteFile = libssh2_sftp_open(
-        sftp, remote.constData(),
-        LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
-        LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
-            LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);
-    if (!remoteFile) {
-        setError(QStringLiteral("Could not open remote file for writing: %1").arg(remotePath));
-        return false;
+    // Fresh transfer: create/truncate the remote up front so ranges write into a
+    // clean file. Resume: leave the existing prefix in place.
+    if (startOffset == 0) {
+        const QByteArray remote = remotePath.toUtf8();
+        LIBSSH2_SFTP_HANDLE *remoteFile = libssh2_sftp_open(
+            sftp, remote.constData(),
+            LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
+            LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR |
+                LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);
+        if (!remoteFile) {
+            setError(QStringLiteral("Could not open remote file for writing: %1").arg(remotePath));
+            return false;
+        }
+        libssh2_sftp_close(remoteFile);
     }
-    libssh2_sftp_close(remoteFile);
 
-    std::atomic<quint64> done{0};
-    std::atomic<quint64> reported{0};
+    std::atomic<quint64> done{startOffset};
+    std::atomic<quint64> reported{startOffset};
     std::atomic<bool> stop{false};
     QMutex errorMutex;
     QString firstError;
     std::vector<std::thread> threads;
     threads.reserve(workers);
 
-    const quint64 span = (total + static_cast<quint64>(workers) - 1) /
+    RateLimiter limiter(effectiveRateBytesPerSec()); // shared across all lanes
+    const quint64 region = total - startOffset;      // only send what's missing
+    const quint64 span = (region + static_cast<quint64>(workers) - 1) /
                          static_cast<quint64>(workers);
     for (int i = 0; i < workers; ++i) {
-        const quint64 offset = span * static_cast<quint64>(i);
+        const quint64 offset = startOffset + span * static_cast<quint64>(i);
         if (offset >= total)
             break;
         const quint64 length = qMin(span, total - offset);
@@ -986,6 +1096,7 @@ bool SftpFileEngine::uploadFileParallel(const QString &localPath, const QString 
                 stop.store(true);
                 return;
             }
+            engine.m_limiter = &limiter;
             if (!engine.uploadRange(localPath, remotePath, offset, length, &done,
                                     &reported, total, progress, cancel, &stop)) {
                 QMutexLocker locker(&errorMutex);
@@ -1058,7 +1169,7 @@ bool SftpFileEngine::downloadRange(const QString &remotePath, const QString &loc
             const quint64 current = done->fetch_add(delta) + delta;
             reportProgress(qMin(current, total), total, progress, reported);
         },
-        cancel, stop, &ioError, remotePath);
+        m_limiter, cancel, stop, &ioError, remotePath);
     if (!ok) {
         closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
         setError(ioError);
@@ -1111,7 +1222,7 @@ bool SftpFileEngine::uploadRange(const QString &localPath, const QString &remote
             const quint64 current = done->fetch_add(delta) + delta;
             reportProgress(qMin(current, total), total, progress, reported);
         },
-        cancel, stop, &ioError, remotePath);
+        m_limiter, cancel, stop, &ioError, remotePath);
     if (!ok) {
         closeSftpFile(session, storedSocket(m_socket), remoteFile, nullptr);
         setError(ioError);
@@ -1123,6 +1234,11 @@ bool SftpFileEngine::uploadRange(const QString &localPath, const QString &remote
         return false;
     }
     return true;
+}
+
+quint64 SftpFileEngine::effectiveRateBytesPerSec() const
+{
+    return m_rateBytesPerSec ? m_rateBytesPerSec : rateLimitFromEnv();
 }
 
 bool SftpFileEngine::connectSibling(SftpFileEngine *engine) const

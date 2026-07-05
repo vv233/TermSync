@@ -63,6 +63,14 @@ public:
     virtual bool setPermissions(const QString &remotePath, quint32 mode) = 0;
     virtual bool statSize(const QString &remotePath, quint64 *size) = 0;
 
+    // Cap the aggregate transfer rate in bytes/second (0 = unlimited). Backends
+    // that don't implement throttling ignore it.
+    virtual void setRateLimitBytesPerSec(quint64) {}
+    // When enabled, the next download/upload resumes from the destination's
+    // current size instead of restarting from zero. Ignored by backends that
+    // can't seek. The caller is responsible for the prefix being trustworthy.
+    virtual void setResume(bool) {}
+
     // Recursively enumerates the tree under `root` into a sync::Listing keyed by
     // forward-slash paths relative to `root` (drives the sync engine). Uses the
     // virtual listDirectory, so it works for any backend. Overridable if a
