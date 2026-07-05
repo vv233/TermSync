@@ -70,6 +70,13 @@ public:
     // current size instead of restarting from zero. Ignored by backends that
     // can't seek. The caller is responsible for the prefix being trustworthy.
     virtual void setResume(bool) {}
+    // Optional external flag: while it reads true the active transfer parks
+    // (holding its position, consuming no bandwidth) until it clears or the
+    // cancel flag is set. Non-owning; must outlive the transfer.
+    virtual void setPauseFlag(const std::atomic<bool> *) {}
+    // When enabled, a dropped connection mid-transfer is retried (reconnect +
+    // continue) rather than failing. Backends without reconnect ignore it.
+    virtual void setRelentless(bool) {}
 
     // Recursively enumerates the tree under `root` into a sync::Listing keyed by
     // forward-slash paths relative to `root` (drives the sync engine). Uses the

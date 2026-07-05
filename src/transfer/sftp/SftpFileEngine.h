@@ -43,6 +43,11 @@ public:
     bool statSize(const QString &remotePath, quint64 *size) override;
     void setRateLimitBytesPerSec(quint64 bytesPerSec) override { m_rateBytesPerSec = bytesPerSec; }
     void setResume(bool resume) override { m_resume = resume; }
+    void setPauseFlag(const std::atomic<bool> *pause) override { m_pauseFlag = pause; }
+    // "Relentless": on a dropped connection mid-transfer, reconnect (bounded
+    // attempts with backoff) and continue instead of failing. Parallel lanes
+    // resume per-range; the sequential path resumes from the contiguous prefix.
+    void setRelentless(bool relentless) override { m_relentless = relentless; }
     // listRecursive is inherited from FileEngine (generic walk via listDirectory).
 
     // SCP transfers over the same authenticated session (M12). SCP is a
@@ -67,19 +72,22 @@ private:
     bool uploadFileParallel(const QString &localPath, const QString &remotePath,
                             quint64 total, quint64 startOffset, ProgressFn progress,
                             const std::atomic<bool> *cancel);
+    // rangeDone (nullable) accumulates bytes this lane has committed, so a
+    // relentless retry can resume the lane from exactly where it dropped.
     bool downloadRange(const QString &remotePath, const QString &localPath,
                        quint64 offset, quint64 length,
                        std::atomic<quint64> *done, std::atomic<quint64> *reported,
-                       quint64 total,
+                       std::atomic<quint64> *rangeDone, quint64 total,
                        ProgressFn progress, const std::atomic<bool> *cancel,
                        const std::atomic<bool> *stop);
     bool uploadRange(const QString &localPath, const QString &remotePath,
                      quint64 offset, quint64 length,
                      std::atomic<quint64> *done, std::atomic<quint64> *reported,
-                     quint64 total,
+                     std::atomic<quint64> *rangeDone, quint64 total,
                      ProgressFn progress, const std::atomic<bool> *cancel,
                      const std::atomic<bool> *stop);
     bool connectSibling(SftpFileEngine *engine) const;
+    bool reconnectForRetry(); // disconnect + reconnect the primary session
     // Effective cap: explicit setRateLimitBytesPerSec() wins, else the env default.
     quint64 effectiveRateBytesPerSec() const;
 
@@ -98,6 +106,8 @@ private:
     quint64 m_rateBytesPerSec = 0;      // 0 = unlimited
     bool m_resume = false;              // resume from destination size on next transfer
     RateLimiter *m_limiter = nullptr;   // non-owning; shared by parallel siblings for one transfer
+    const std::atomic<bool> *m_pauseFlag = nullptr; // non-owning; parks the transfer while true
+    bool m_relentless = false;          // reconnect + continue on a dropped connection
 };
 
 } // namespace termsync::transfer

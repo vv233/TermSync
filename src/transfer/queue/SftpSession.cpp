@@ -33,6 +33,10 @@ public:
         } else {
             m_engine = std::make_unique<SftpFileEngine>();
         }
+        // The interactive queue is resilient by default: park via the pause flag,
+        // and reconnect-and-resume through brief network drops.
+        m_engine->setPauseFlag(&m_pauseFlag);
+        m_engine->setRelentless(true);
     }
 
 public slots:
@@ -122,6 +126,20 @@ public slots:
         m_cancelFlag.store(true);
     }
 
+    void pause(int id)
+    {
+        QMutexLocker locker(&m_queueMutex);
+        if (id == m_activeId)
+            m_pauseFlag.store(true);
+    }
+
+    void resume(int id)
+    {
+        QMutexLocker locker(&m_queueMutex);
+        if (id == m_activeId)
+            m_pauseFlag.store(false);
+    }
+
     void pump()
     {
         if (m_busy)
@@ -138,6 +156,7 @@ public slots:
             item = m_queue.dequeue();
             m_activeId = item.id;
             m_cancelFlag.store(false);
+            m_pauseFlag.store(false); // a stale pause must not carry to the next item
         }
         m_busy = true;
 
@@ -181,6 +200,7 @@ private:
     QQueue<TransferItem> m_queue;
     QSet<int> m_cancelled;
     std::atomic<bool> m_cancelFlag{false};
+    std::atomic<bool> m_pauseFlag{false};
     int m_activeId = 0;
     bool m_busy = false;
 };
@@ -282,6 +302,16 @@ void SftpSession::cancel(int id)
 void SftpSession::cancelAll()
 {
     QMetaObject::invokeMethod(m_worker, "cancelAll", Qt::QueuedConnection);
+}
+
+void SftpSession::pause(int id)
+{
+    QMetaObject::invokeMethod(m_worker, "pause", Qt::QueuedConnection, Q_ARG(int, id));
+}
+
+void SftpSession::resume(int id)
+{
+    QMetaObject::invokeMethod(m_worker, "resume", Qt::QueuedConnection, Q_ARG(int, id));
 }
 
 void SftpSession::requestSyncListing(const QString &root)

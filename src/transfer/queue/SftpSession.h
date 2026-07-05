@@ -62,6 +62,9 @@ public slots:
     void changePermissions(const QString &path, quint32 mode);
     void cancel(int id);
     void cancelAll();
+    // Park / unpark the active transfer (no effect on queued items until active).
+    void pause(int id);
+    void resume(int id);
     // Recursively enumerates a remote tree for the sync engine; the result
     // arrives via syncListingReady.
     void requestSyncListing(const QString &root);

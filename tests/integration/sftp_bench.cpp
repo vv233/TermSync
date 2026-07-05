@@ -139,6 +139,10 @@ int main(int argc, char *argv[])
     std::fprintf(stderr, "[generate] %.2fs\n", timer.elapsed() / 1000.0);
 
     termsync::transfer::SftpFileEngine sftp;
+    if (qgetenv("SFTP_RELENTLESS").toInt() != 0) {
+        sftp.setRelentless(true);
+        std::fprintf(stderr, "[relentless] enabled\n");
+    }
     if (!sftp.connectToHost(p, [](const QString &) { return true; })) {
         std::fprintf(stderr, "[connect failed] %s\n", sftp.lastError().toUtf8().constData());
         return 1;
