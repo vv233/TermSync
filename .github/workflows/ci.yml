@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          cache: true
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '0000000000000000000000000000000000000000'
+          # TODO: pin to a real vcpkg commit SHA once selected.
+
+      - name: Configure
+        run: cmake --preset default
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+
+      - name: Build
+        run: cmake --build --preset default
+
+      - name: Test
+        run: ctest --preset default

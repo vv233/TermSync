@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "termsync",
+  "version": "0.1.0",
+  "description": "Open-source SSH terminal + SFTP/FTP client",
+  "homepage": "https://github.com/termsync/termsync",
+  "license": "MIT",
+  "dependencies": [
+    "libssh2",
+    "curl",
+    "sqlite3",
+    "nlohmann-json"
+  ],
+  "features": {
+    "keychain": {
+      "description": "OS-native credential storage via QtKeychain (added in M9)",
+      "dependencies": [
+        "qtkeychain"
+      ]
+    },
+    "tests": {
+      "description": "Unit test dependencies",
+      "dependencies": [
+        "gtest"
+      ]
+    }
+  },
+  "default-features": [
+    "tests"
+  ]
+}

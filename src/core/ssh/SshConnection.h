@@ -1,0 +1,81 @@
+#pragma once
+
+#include <QByteArray>
+#include <QObject>
+#include <QString>
+
+class QThread;
+
+namespace termsync::core {
+
+// Parameters needed to open an SSH2 shell session.
+// M2 supports password auth only; public-key/agent arrive in M9.
+struct SshConnectionParams
+{
+    QString host;
+    quint16 port = 22;
+    QString username;
+    QString password;
+    // Initial PTY size (updated later via SshConnection::resize()).
+    int cols = 80;
+    int rows = 24;
+};
+
+class SshWorker; // internal, runs on the worker thread
+
+// SshConnection is the public, thread-safe-facing wrapper around a single
+// libssh2 SSH2 session. All blocking network + libssh2 work happens on a
+// dedicated worker thread (libssh2 sessions are not safe to touch from
+// multiple threads); this object lives in the caller/UI thread and
+// communicates with the worker purely through queued signals/slots.
+//
+// M2 scope: connect, password auth, one interactive shell channel with a
+// PTY, and raw byte read/write. VT parsing (M3) and multi-channel/SFTP
+// (M5) build on top of this class.
+class SshConnection : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit SshConnection(QObject *parent = nullptr);
+    ~SshConnection() override;
+
+    // Begins connecting asynchronously. Results arrive via signals.
+    void connectToHost(const SshConnectionParams &params);
+
+    // Sends raw bytes (typically keystrokes) to the remote shell.
+    void sendData(const QByteArray &data);
+
+    // Informs the remote PTY of a new window size.
+    void resize(int cols, int rows);
+
+    // Closes the channel and tears down the session/thread.
+    void disconnectFromHost();
+
+    bool isConnected() const { return m_connected; }
+
+signals:
+    // Emitted once the shell channel is open and ready for I/O.
+    void connected();
+    // Host key fingerprint seen during handshake (SHA-256, hex). M2 accepts
+    // it automatically; M4 turns this into a trust-on-first-use prompt.
+    void hostKeyFingerprint(const QString &sha256Hex);
+    // Raw bytes received from the remote shell.
+    void dataReceived(const QByteArray &data);
+    // Authentication failed (bad password, method not allowed, ...).
+    void authenticationFailed(const QString &reason);
+    // Any other fatal error (connect refused, handshake failed, ...).
+    void errorOccurred(const QString &message);
+    // The session ended (remote closed, or disconnectFromHost()).
+    void disconnected();
+
+private:
+    QThread *m_thread = nullptr;
+    SshWorker *m_worker = nullptr;
+    bool m_connected = false;
+};
+
+} // namespace termsync::core
+
+// Needed so SshConnectionParams can cross threads via a queued slot call.
+Q_DECLARE_METATYPE(termsync::core::SshConnectionParams)

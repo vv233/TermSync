@@ -1,0 +1,21 @@
+# UI module: main window shell, dialogs, terminal/transfer views.
+
+add_library(termsync_ui STATIC
+    mainwindow/MainWindow.h
+    mainwindow/MainWindow.cpp
+    session_dialogs/QuickConnectDialog.h
+    session_dialogs/QuickConnectDialog.cpp
+    terminal_view/RawTerminalView.h
+    terminal_view/RawTerminalView.cpp
+)
+
+target_include_directories(termsync_ui
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(termsync_ui
+    PUBLIC
+        Qt6::Widgets
+        termsync_core
+)

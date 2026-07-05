@@ -1,0 +1,34 @@
+# Build output
+/build/
+/out/
+/cmake-build-*/
+*.user
+
+# vcpkg
+/vcpkg_installed/
+/vcpkg/
+
+# Qt
+*.moc
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+*.qmlc
+
+# IDE
+.vs/
+.idea/
+.vscode/
+*.swp
+*~
+
+# Claude Code session artifacts
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets / test artifacts
+*.log
+/tests/integration/.env
