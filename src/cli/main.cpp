@@ -125,8 +125,16 @@ int runSync(FileEngine &engine, const QString &local, const QString &remote,
     using namespace transfer::sync;
     Listing localList = enumerateLocalTree(local);
     Listing remoteList;
-    if (!engine.listRecursive(remote, &remoteList))
-        return fail("list remote: " + engine.lastError());
+    if (!engine.listRecursive(remote, &remoteList)) {
+        // For a download sync the remote side must exist; for an upload sync the
+        // destination may simply not exist yet — create it (best effort, unless
+        // this is a dry run) and proceed against an empty remote listing.
+        if (down)
+            return fail("list remote: " + engine.lastError());
+        if (!dryRun)
+            engine.makeDirectory(remote);
+        remoteList = Listing{};
+    }
     DirectoryDiffer differ(down ? Direction::RemoteToLocal : Direction::LocalToRemote,
                            CompareStrategy::MtimeSize, ConflictPolicy::NewerWins, del);
     const QVector<SyncAction> actions = differ.diff(localList, remoteList);
