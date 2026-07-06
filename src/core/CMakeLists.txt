@@ -8,8 +8,12 @@ find_package(libssh2 CONFIG REQUIRED)
 add_library(termsync_core STATIC
     AbstractTerminalConnection.h
     model/ConnectionProfile.h
+    model/Bookmark.h
+    browse/PathMirror.h
     store/ProfileStore.h
     store/ProfileStore.cpp
+    store/BookmarkStore.h
+    store/BookmarkStore.cpp
     credential/CredentialStore.h
     credential/CredentialStore.cpp
     net/Socks5.h
