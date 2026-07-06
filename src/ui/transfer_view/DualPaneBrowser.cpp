@@ -1,5 +1,6 @@
 #include "transfer_view/DualPaneBrowser.h"
 
+#include "browse/PathMirror.h"
 #include "sync/DirectoryDiffer.h"
 #include "sync/SyncEngine.h"
 #include "transfer_view/SynchronizeDialog.h"
@@ -46,6 +47,15 @@ DualPaneBrowser::DualPaneBrowser(const core::SshConnectionParams &params,
                                  core::Protocol protocol, QWidget *parent)
     : QWidget(parent)
 {
+    m_host = params.host;
+
+    // Bookmarks persist in a single JSON file shared across sessions.
+    const QString dir =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dir);
+    m_bookmarksPath = dir + QStringLiteral("/bookmarks.json");
+    m_bookmarks.load(m_bookmarksPath);
+
     m_session = new transfer::SftpSession(params, expectedFingerprint, protocol, this);
 
     connect(m_session, &transfer::SftpSession::connected, this,
@@ -132,6 +142,7 @@ void DualPaneBrowser::setLocalPath(const QString &path)
         return;
     m_localView->setRootIndex(m_localModel->index(dir.absolutePath()));
     m_localPathEdit->setText(dir.absolutePath());
+    mirrorLocalToRemote(dir.absolutePath());
 }
 
 void DualPaneBrowser::onLocalActivated(const QModelIndex &index)
@@ -177,9 +188,21 @@ QWidget *DualPaneBrowser::buildRemotePane()
     connect(downloadBtn, &QPushButton::clicked, this, &DualPaneBrowser::downloadSelected);
     auto *syncBtn = new QPushButton(tr("Synchronize..."));
     connect(syncBtn, &QPushButton::clicked, this, &DualPaneBrowser::onSyncClicked);
+
+    // Synchronized-browsing toggle: mirror navigation across both panes.
+    auto *syncBrowse = new QToolButton;
+    syncBrowse->setText(tr("Sync Browse"));
+    syncBrowse->setCheckable(true);
+    syncBrowse->setToolTip(
+        tr("Mirror folder navigation between the local and remote panes"));
+    connect(syncBrowse, &QToolButton::toggled, this,
+            &DualPaneBrowser::setSyncBrowsing);
+
     m_remotePathEdit = new QLineEdit;
     m_remotePathEdit->setReadOnly(true);
     bar->addWidget(downloadBtn);
+    bar->addWidget(buildBookmarkButton());
+    bar->addWidget(syncBrowse);
     bar->addWidget(syncBtn);
     bar->addWidget(new QLabel(tr("Remote:")));
     bar->addWidget(m_remotePathEdit, 1);
@@ -202,6 +225,114 @@ QWidget *DualPaneBrowser::buildRemotePane()
     layout->addLayout(bar);
     layout->addWidget(m_remoteTable);
     return pane;
+}
+
+// ---------------------------------------------------------------------------
+// Bookmarks (M20)
+// ---------------------------------------------------------------------------
+QToolButton *DualPaneBrowser::buildBookmarkButton()
+{
+    auto *button = new QToolButton;
+    button->setText(tr("Bookmarks"));
+    button->setPopupMode(QToolButton::InstantPopup);
+    m_bookmarkMenu = new QMenu(button);
+    button->setMenu(m_bookmarkMenu);
+    // Rebuild on show so the list reflects the current host + saved bookmarks.
+    connect(m_bookmarkMenu, &QMenu::aboutToShow, this,
+            &DualPaneBrowser::rebuildBookmarkMenu);
+    return button;
+}
+
+void DualPaneBrowser::rebuildBookmarkMenu()
+{
+    if (!m_bookmarkMenu)
+        return;
+    m_bookmarkMenu->clear();
+
+    QAction *addAct = m_bookmarkMenu->addAction(tr("Add Bookmark..."));
+    connect(addAct, &QAction::triggered, this, &DualPaneBrowser::addBookmark);
+
+    const QVector<core::Bookmark> list = m_bookmarks.forHost(m_host);
+    if (!list.isEmpty())
+        m_bookmarkMenu->addSeparator();
+    for (const core::Bookmark &b : list) {
+        const QString label =
+            b.host.isEmpty() ? tr("%1  (global)").arg(b.name) : b.name;
+        QAction *act = m_bookmarkMenu->addAction(label);
+        act->setToolTip(b.remotePath);
+        const core::Bookmark captured = b;
+        connect(act, &QAction::triggered, this,
+                [this, captured] { navigateToBookmark(captured); });
+    }
+}
+
+void DualPaneBrowser::addBookmark()
+{
+    bool ok = false;
+    const QString suggested = m_remotePath.section('/', -1, -1,
+                                                   QString::SectionSkipEmpty);
+    const QString name = QInputDialog::getText(
+        this, tr("Add Bookmark"), tr("Bookmark name:"), QLineEdit::Normal,
+        suggested.isEmpty() ? m_remotePath : suggested, &ok);
+    if (!ok || name.isEmpty())
+        return;
+
+    core::Bookmark b;
+    b.id = core::BookmarkStore::newId();
+    b.name = name;
+    b.host = m_host;
+    b.remotePath = m_remotePath;
+    b.localPath = m_localPathEdit ? m_localPathEdit->text() : QString();
+    m_bookmarks.add(b);
+    if (!m_bookmarks.save(m_bookmarksPath))
+        emit statusMessage(tr("Could not save bookmark"));
+    else
+        emit statusMessage(tr("Bookmarked '%1'").arg(name));
+}
+
+void DualPaneBrowser::navigateToBookmark(const core::Bookmark &b)
+{
+    if (!b.localPath.isEmpty())
+        setLocalPath(b.localPath);
+    if (!b.remotePath.isEmpty())
+        requestRemoteList(b.remotePath);
+    emit statusMessage(tr("Jumped to bookmark '%1'").arg(b.name));
+}
+
+// ---------------------------------------------------------------------------
+// Synchronized browsing (M20)
+// ---------------------------------------------------------------------------
+void DualPaneBrowser::setSyncBrowsing(bool on)
+{
+    m_syncBrowsing = on;
+    if (on) {
+        // Capture the current locations as the mirror roots.
+        m_syncLocalRoot = m_localPathEdit ? m_localPathEdit->text() : QString();
+        m_syncRemoteRoot = m_remotePath;
+        emit statusMessage(tr("Synchronized browsing on"));
+    } else {
+        emit statusMessage(tr("Synchronized browsing off"));
+    }
+}
+
+void DualPaneBrowser::mirrorLocalToRemote(const QString &newLocal)
+{
+    if (!m_syncBrowsing)
+        return;
+    const QString target =
+        core::mirrorPath(m_syncLocalRoot, newLocal, m_syncRemoteRoot);
+    if (!target.isEmpty() && target != m_remotePath)
+        requestRemoteList(target);
+}
+
+void DualPaneBrowser::mirrorRemoteToLocal(const QString &newRemote)
+{
+    if (!m_syncBrowsing || !m_localPathEdit)
+        return;
+    const QString target =
+        core::mirrorPath(m_syncRemoteRoot, newRemote, m_syncLocalRoot);
+    if (!target.isEmpty() && target != m_localPathEdit->text())
+        setLocalPath(target);
 }
 
 QWidget *DualPaneBrowser::buildQueuePanel()
@@ -231,6 +362,7 @@ void DualPaneBrowser::onDirectoryListed(const QString &path,
 {
     m_remotePath = path;
     m_remotePathEdit->setText(path);
+    mirrorRemoteToLocal(path);
 
     // Sort: directories first, then by name.
     m_remoteEntries = entries;

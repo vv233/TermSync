@@ -123,3 +123,13 @@ target_link_libraries(hexview_render_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# UI smoke (no server): DualPaneBrowser bookmarks + sync-browse toolbar -> PNG.
+add_executable(dualpane_ui_smoke
+    dualpane_ui_smoke.cpp
+)
+target_link_libraries(dualpane_ui_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)

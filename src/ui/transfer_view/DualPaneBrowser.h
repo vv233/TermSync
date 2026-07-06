@@ -6,12 +6,15 @@
 #include "model/ConnectionProfile.h"
 #include "queue/SftpSession.h"
 #include "ssh/SshConnection.h"
+#include "store/BookmarkStore.h"
 
 class QFileSystemModel;
 class QLineEdit;
+class QMenu;
 class QTableView;
 class QTableWidget;
 class QModelIndex;
+class QToolButton;
 
 namespace termsync::ui {
 
@@ -53,12 +56,23 @@ private slots:
     void localGoUp();
     void remoteGoUp();
 
+    // Bookmarks (M20) + synchronized browsing.
+    void rebuildBookmarkMenu();
+    void addBookmark();
+    void navigateToBookmark(const core::Bookmark &b);
+    void setSyncBrowsing(bool on);
+
 private:
     QWidget *buildLocalPane();
     QWidget *buildRemotePane();
     QWidget *buildQueuePanel();
+    QToolButton *buildBookmarkButton();
     void setLocalPath(const QString &path);
     void requestRemoteList(const QString &path);
+    // When synchronized browsing is on, mirror the other pane to `newLocal` /
+    // `newRemote` (no-op if the mirrored path is unchanged or out of subtree).
+    void mirrorRemoteToLocal(const QString &newRemote);
+    void mirrorLocalToRemote(const QString &newLocal);
     QString remoteJoin(const QString &dir, const QString &name) const;
     QStringList selectedLocalFiles() const;
 
@@ -77,6 +91,18 @@ private:
     QHash<int, int> m_taskRow; // transfer id -> queue table row
 
     bool m_syncPending = false; // awaiting a recursive listing for Synchronize
+
+    // Bookmarks (M20).
+    QString m_host;             // owning host, for host-scoped bookmarks
+    core::BookmarkStore m_bookmarks;
+    QString m_bookmarksPath;    // JSON file backing the store
+    QMenu *m_bookmarkMenu = nullptr;
+
+    // Synchronized browsing (M20): mirror navigation between the two panes,
+    // relative to the roots captured when it was enabled.
+    bool m_syncBrowsing = false;
+    QString m_syncLocalRoot;
+    QString m_syncRemoteRoot;
 };
 
 } // namespace termsync::ui
