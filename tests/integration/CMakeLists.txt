@@ -84,6 +84,17 @@ target_link_libraries(local_shell_smoke
         Qt6::Core
 )
 
+# Headless (no external server): TFTP server WRQ+RRQ round-trip over loopback.
+add_executable(tftp_smoke
+    tftp_smoke.cpp
+)
+target_link_libraries(tftp_smoke
+    PRIVATE
+        termsync_core
+        Qt6::Core
+        Qt6::Network
+)
+
 # GUI render smoke test (needs Qt Widgets + a GUI platform).
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 add_executable(terminal_render_smoke

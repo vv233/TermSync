@@ -34,6 +34,10 @@ add_library(termsync_core STATIC
     serial/SerialConnection.cpp
     local/LocalShellConnection.h
     local/LocalShellConnection.cpp
+    tftp/TftpProtocol.h
+    tftp/TftpProtocol.cpp
+    tftp/TftpServer.h
+    tftp/TftpServer.cpp
     tn3270/Tn3270Stream.h
     tn3270/Tn3270Stream.cpp
     tn3270/Tn3270Connection.h
