@@ -10,6 +10,10 @@ add_library(termsync_terminal STATIC
     screen/ScreenBuffer.cpp
     vt/VtParser.h
     vt/VtParser.cpp
+    text/KeywordHighlighter.h
+    text/KeywordHighlighter.cpp
+    text/HexView.h
+    text/HexView.cpp
 )
 
 target_include_directories(termsync_terminal
