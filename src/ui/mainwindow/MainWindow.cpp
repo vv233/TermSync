@@ -11,6 +11,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QStatusBar>
@@ -25,7 +26,9 @@
 #include "local/LocalShellConnection.h"
 #include "script/TerminalScriptContext.h"
 #include "session_dialogs/KeywordHighlightDialog.h"
+#include "session_dialogs/TerminalAppearanceDialog.h"
 #include "store/ConfigTransfer.h"
+#include "theme/ColorScheme.h"
 #include "serial/SerialConnection.h"
 #include "session_dialogs/QuickConnectDialog.h"
 #include "telnet/TelnetConnection.h"
@@ -54,6 +57,7 @@ MainWindow::MainWindow(QWidget *parent)
     createSessionManagerDock();
     createStatusBar();
 
+    loadAppearance();
     initStores();
     loadProfilesIntoTree();
     addWelcomeTab();
@@ -130,6 +134,10 @@ void MainWindow::createMenus()
     placeholder(optionsMenu, tr("Session Options..."));
     placeholder(optionsMenu, tr("Global Options..."));
     placeholder(optionsMenu, tr("Edit Default Session..."));
+    optionsMenu->addSeparator();
+    QAction *appearanceAct = optionsMenu->addAction(tr("Terminal Appearance..."));
+    connect(appearanceAct, &QAction::triggered, this,
+            &MainWindow::openTerminalAppearance);
 
     // --- Transfer ---
     QMenu *transferMenu = menuBar()->addMenu(tr("&Transfer"));
@@ -497,6 +505,7 @@ void MainWindow::startSession(const core::ConnectionProfile &profile,
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     view->setLogContext(profile.host, baseTitle);
+    applyAppearance(view);
     const int index = m_sessionTabs->addTab(view, baseTitle);
     m_sessionTabs->setCurrentIndex(index);
     connect(view, &TerminalWidget::titleChanged, this,
@@ -561,6 +570,7 @@ void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
     view->setFocus();
 
     view->setLogContext(profile.host, baseTitle);
+    applyAppearance(view);
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (Telnet) to %1...").arg(profile.host), 4000);
 }
@@ -578,6 +588,7 @@ void MainWindow::startTn3270Session(const core::ConnectionProfile &profile)
     view->setFocus();
 
     view->setLogContext(profile.host, baseTitle);
+    applyAppearance(view);
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (TN3270) to %1...").arg(profile.host), 4000);
 }
@@ -595,6 +606,7 @@ void MainWindow::startTn5250Session(const core::ConnectionProfile &profile)
     view->setFocus();
 
     view->setLogContext(profile.host, baseTitle);
+    applyAppearance(view);
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (TN5250) to %1...").arg(profile.host), 4000);
 }
@@ -768,6 +780,7 @@ void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
 
     const QString baseTitle = profile.name.isEmpty() ? sp.portName : profile.name;
     view->setLogContext(sp.portName, baseTitle);
+    applyAppearance(view);
     const int index = m_sessionTabs->addTab(view, baseTitle);
     m_sessionTabs->setCurrentIndex(index);
     view->setFocus();
@@ -775,6 +788,69 @@ void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
     conn->open(sp);
     statusBar()->showMessage(
         tr("Opening serial %1 @ %2 baud...").arg(sp.portName).arg(sp.baudRate), 4000);
+}
+
+void MainWindow::loadAppearance()
+{
+    QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    m_terminalScheme =
+        settings.value(QStringLiteral("terminal/scheme"),
+                       terminal::defaultSchemeName())
+            .toString();
+    const QString family =
+        settings.value(QStringLiteral("terminal/fontFamily")).toString();
+    const int pt = settings.value(QStringLiteral("terminal/fontSize"), -1).toInt();
+    if (!family.isEmpty() && pt > 0) {
+        m_terminalFont = QFont(family);
+        m_terminalFont.setStyleHint(QFont::Monospace);
+        m_terminalFont.setFixedPitch(true);
+        m_terminalFont.setPointSize(pt);
+    }
+}
+
+void MainWindow::applyAppearance(TerminalWidget *terminal) const
+{
+    if (!terminal)
+        return;
+    if (const terminal::ColorScheme *s = terminal::findScheme(m_terminalScheme))
+        terminal->applyColorScheme(*s);
+    if (m_terminalFont.pointSize() > 0)
+        terminal->setTerminalFont(m_terminalFont);
+}
+
+void MainWindow::openTerminalAppearance()
+{
+    auto *current =
+        qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+    const QString scheme = current ? current->colorSchemeName() : m_terminalScheme;
+    const QFont font = current                    ? current->terminalFont()
+                       : m_terminalFont.pointSize() > 0
+                           ? m_terminalFont
+                           : QFont(QStringLiteral("Cascadia Mono"), 11);
+
+    TerminalAppearanceDialog dialog(scheme, font, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    m_terminalScheme = dialog.selectedScheme();
+    m_terminalFont = dialog.selectedFont();
+
+    QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    settings.setValue(QStringLiteral("terminal/scheme"), m_terminalScheme);
+    settings.setValue(QStringLiteral("terminal/fontFamily"),
+                      m_terminalFont.family());
+    settings.setValue(QStringLiteral("terminal/fontSize"),
+                      m_terminalFont.pointSize());
+
+    // Apply to the current tab, or to every open terminal.
+    if (dialog.applyToAll()) {
+        for (int i = 0; i < m_sessionTabs->count(); ++i)
+            applyAppearance(
+                qobject_cast<TerminalWidget *>(m_sessionTabs->widget(i)));
+    } else {
+        applyAppearance(current);
+    }
+    statusBar()->showMessage(tr("Applied theme '%1'").arg(m_terminalScheme), 4000);
 }
 
 void MainWindow::openLocalShell()
@@ -786,6 +862,7 @@ void MainWindow::openLocalShell()
 
     const QString title = tr("Local Shell");
     view->setLogContext(QStringLiteral("localhost"), title);
+    applyAppearance(view);
     const int index = m_sessionTabs->addTab(view, title);
     m_sessionTabs->setCurrentIndex(index);
     connect(view, &TerminalWidget::titleChanged, this,

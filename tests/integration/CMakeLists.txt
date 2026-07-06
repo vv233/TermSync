@@ -173,3 +173,13 @@ target_link_libraries(theme_render_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# Render smoke (no server): the Terminal Appearance picker dialog -> PNG.
+add_executable(appearance_dialog_smoke
+    appearance_dialog_smoke.cpp
+)
+target_link_libraries(appearance_dialog_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)

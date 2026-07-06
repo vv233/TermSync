@@ -64,6 +64,7 @@ int main(int argc, char *argv[])
     QMenu *file = menuByTitle(bar, QStringLiteral("File"));
     QMenu *edit = menuByTitle(bar, QStringLiteral("Edit"));
     QMenu *view = menuByTitle(bar, QStringLiteral("View"));
+    QMenu *options = menuByTitle(bar, QStringLiteral("Options"));
     QMenu *tools = menuByTitle(bar, QStringLiteral("Tools"));
 
     check(hasAction(file, QStringLiteral("Local Shell")), "File > Local Shell");
@@ -71,6 +72,8 @@ int main(int argc, char *argv[])
     check(hasAction(edit, QStringLiteral("Keyword Highlighting...")),
           "Edit > Keyword Highlighting...");
     check(hasAction(view, QStringLiteral("Hex View")), "View > Hex View");
+    check(hasAction(options, QStringLiteral("Terminal Appearance...")),
+          "Options > Terminal Appearance...");
     check(hasAction(tools, QStringLiteral("Import Settings...")),
           "Tools > Import Settings...");
     check(hasAction(tools, QStringLiteral("Export Settings...")),

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QFont>
 #include <QMainWindow>
 #include <memory>
 
@@ -15,6 +16,8 @@ class QDockWidget;
 class QPoint;
 
 namespace termsync::ui {
+
+class TerminalWidget;
 
 // The application main window.
 //
@@ -67,6 +70,12 @@ private:
     // Local Shell (M20): open a terminal tab backed by the platform shell.
     void openLocalShell();
 
+    // Terminal appearance (M20): colour scheme + font picker. loadAppearance
+    // reads persisted prefs; applyAppearance seeds a freshly created terminal.
+    void openTerminalAppearance();
+    void loadAppearance();
+    void applyAppearance(TerminalWidget *terminal) const;
+
     // Runs a JavaScript automation script against the active terminal tab.
     void runScript();
 
@@ -99,6 +108,11 @@ private:
     std::unique_ptr<core::ProfileStore> m_profileStore;
     std::unique_ptr<core::CredentialStore> m_credentialStore;
     QVector<core::ConnectionProfile> m_profiles;
+
+    // Terminal appearance defaults (applied to new terminals). Font pointSize
+    // <= 0 means "keep the widget's built-in font".
+    QString m_terminalScheme;
+    QFont m_terminalFont;
 };
 
 } // namespace termsync::ui
