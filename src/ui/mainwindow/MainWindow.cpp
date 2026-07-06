@@ -22,6 +22,7 @@
 
 #include "ScriptEngine.h"
 #include "script/TerminalScriptContext.h"
+#include "session_dialogs/KeywordHighlightDialog.h"
 #include "store/ConfigTransfer.h"
 #include "serial/SerialConnection.h"
 #include "session_dialogs/QuickConnectDialog.h"
@@ -101,6 +102,10 @@ void MainWindow::createMenus()
     placeholder(editMenu, tr("Clear Screen"));
     placeholder(editMenu, tr("Clear Scrollback"));
     placeholder(editMenu, tr("Find..."));
+    editMenu->addSeparator();
+    QAction *highlightAct = editMenu->addAction(tr("Keyword Highlighting..."));
+    connect(highlightAct, &QAction::triggered, this,
+            &MainWindow::editKeywordHighlighting);
 
     // --- View ---
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
@@ -609,6 +614,24 @@ void MainWindow::runScript()
         statusBar()->showMessage(tr("Script finished"), 4000);
     else
         statusBar()->showMessage(tr("Script error: %1").arg(result.error), 8000);
+}
+
+void MainWindow::editKeywordHighlighting()
+{
+    auto *terminal =
+        qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+    if (!terminal) {
+        statusBar()->showMessage(
+            tr("Keyword Highlighting: open a terminal tab first"), 4000);
+        return;
+    }
+    KeywordHighlightDialog dialog(terminal->highlightRules(), this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    const auto rules = dialog.rules();
+    terminal->setHighlightRules(rules);
+    statusBar()->showMessage(
+        tr("Applied %1 highlight rule(s)").arg(rules.size()), 4000);
 }
 
 void MainWindow::toggleSessionLog()

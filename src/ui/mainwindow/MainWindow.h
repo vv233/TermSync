@@ -74,6 +74,9 @@ private:
     // Log Session (M20b): toggle raw session logging on the active terminal tab.
     void toggleSessionLog();
 
+    // Keyword Highlighting (M20a): edit the active terminal's highlight rules.
+    void editKeywordHighlighting();
+
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.
     bool verifyHostKey(const QString &host, quint16 port,

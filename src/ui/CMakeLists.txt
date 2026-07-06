@@ -5,6 +5,8 @@ add_library(termsync_ui STATIC
     mainwindow/MainWindow.cpp
     session_dialogs/QuickConnectDialog.h
     session_dialogs/QuickConnectDialog.cpp
+    session_dialogs/KeywordHighlightDialog.h
+    session_dialogs/KeywordHighlightDialog.cpp
     terminal_view/RawTerminalView.h
     terminal_view/RawTerminalView.cpp
     terminal_view/TerminalWidget.h

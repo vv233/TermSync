@@ -141,6 +141,15 @@ void TerminalWidget::initView()
 
     m_parser->onTitleChanged = [this](const QString &t) { emit titleChanged(t); };
     m_parser->onApplicationCursorKeys = [this](bool on) { m_appCursorKeys = on; };
+
+    // Default keyword-highlight palette (colorId wraps over these).
+    m_highlightColors = {
+        QColor(0xff, 0xd7, 0x00), // amber
+        QColor(0xff, 0x5f, 0x5f), // red
+        QColor(0x5f, 0xff, 0x87), // green
+        QColor(0x5f, 0xd7, 0xff), // cyan
+        QColor(0xff, 0x87, 0xff), // magenta
+    };
 }
 
 void TerminalWidget::wireConnection()
@@ -295,6 +304,18 @@ QString TerminalWidget::logPath() const
     return m_logger ? m_logger->path() : QString();
 }
 
+void TerminalWidget::setHighlightRules(
+    const QVector<terminal::HighlightRule> &rules)
+{
+    m_highlighter.setRules(rules);
+    update();
+}
+
+const QVector<terminal::HighlightRule> &TerminalWidget::highlightRules() const
+{
+    return m_highlighter.rules();
+}
+
 // ---------------------------------------------------------------------------
 // Painting
 // ---------------------------------------------------------------------------
@@ -322,6 +343,24 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
         const Line &line = docLine(docRow);
         const qreal y = m_padY + viewRow * m_cellH;
 
+        // Keyword highlighting: map each column to a highlight colour id (-1 =
+        // none) by matching the line's plain text against the active rules.
+        QVector<int> hlColorId;
+        if (!m_highlighter.rules().isEmpty()) {
+            QString text(cols, QLatin1Char(' '));
+            const int n = std::min(cols, static_cast<int>(line.size()));
+            for (int c = 0; c < n; ++c) {
+                const char32_t ch = line[c].ch;
+                text[c] = QChar(ch == 0 ? u' ' : static_cast<char16_t>(ch));
+            }
+            hlColorId = QVector<int>(cols, -1);
+            for (const terminal::HighlightSpan &span : m_highlighter.highlight(text)) {
+                for (int i = span.start;
+                     i < span.start + span.length && i < cols; ++i)
+                    hlColorId[i] = span.colorId;
+            }
+        }
+
         for (int col = 0; col < cols && col < line.size(); ++col) {
             const qreal x = m_padX + col * m_cellW;
             const Cell &cell = line[col];
@@ -333,6 +372,11 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
             QColor bg = cell.bg.type == Color::Type::Default
                             ? m_defaultBg
                             : toQColor(cell.bg, false);
+
+            // Keyword highlight overrides the foreground for matched columns.
+            if (!hlColorId.isEmpty() && hlColorId[col] >= 0 &&
+                !m_highlightColors.isEmpty())
+                fg = m_highlightColors[hlColorId[col] % m_highlightColors.size()];
 
             if (cell.hasFlag(CellFlag::Reverse))
                 std::swap(fg, bg);

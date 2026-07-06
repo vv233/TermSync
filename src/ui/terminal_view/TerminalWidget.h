@@ -10,6 +10,7 @@
 #include "AbstractTerminalConnection.h"
 #include "screen/ScreenBuffer.h"
 #include "ssh/SshConnection.h"
+#include "text/KeywordHighlighter.h"
 #include "vt/VtParser.h"
 
 namespace termsync::core {
@@ -63,6 +64,11 @@ public:
     bool isLogging() const;
     QString logPath() const;
 
+    // Keyword highlighting (M20a): colour matching text on each rendered line.
+    // Each rule's colorId indexes into a small highlight palette (wrapping).
+    void setHighlightRules(const QVector<terminal::HighlightRule> &rules);
+    const QVector<terminal::HighlightRule> &highlightRules() const;
+
 signals:
     void statusMessage(const QString &message);
     void titleChanged(const QString &title);
@@ -112,6 +118,10 @@ private:
     std::unique_ptr<core::SessionLogger> m_logger;
     QString m_logHost;
     QString m_logSession;
+
+    // Keyword highlighting (M20a).
+    terminal::KeywordHighlighter m_highlighter;
+    QVector<QColor> m_highlightColors; // colorId -> colour (wraps)
 
     // Cell metrics (pixels).
     qreal m_cellW = 8.0;

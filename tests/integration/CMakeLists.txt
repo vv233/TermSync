@@ -103,3 +103,13 @@ target_link_libraries(session_log_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# Render smoke (no server): TerminalWidget keyword highlighting -> PNG.
+add_executable(highlight_render_smoke
+    highlight_render_smoke.cpp
+)
+target_link_libraries(highlight_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
