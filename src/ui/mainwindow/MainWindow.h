@@ -66,6 +66,11 @@ private:
     // Runs a JavaScript automation script against the active terminal tab.
     void runScript();
 
+    // Import/Export Settings (M20c): serialise connection profiles to/from a
+    // portable JSON document via core::ConfigTransfer.
+    void importSettings();
+    void exportSettings();
+
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.
     bool verifyHostKey(const QString &host, quint16 port,

@@ -22,6 +22,7 @@
 
 #include "ScriptEngine.h"
 #include "script/TerminalScriptContext.h"
+#include "store/ConfigTransfer.h"
 #include "serial/SerialConnection.h"
 #include "session_dialogs/QuickConnectDialog.h"
 #include "telnet/TelnetConnection.h"
@@ -135,6 +136,13 @@ void MainWindow::createMenus()
     placeholder(toolsMenu, tr("Public-Key Assistant..."));
     placeholder(toolsMenu, tr("Manage Agent Keys..."));
     placeholder(toolsMenu, tr("Keymap Editor..."));
+    toolsMenu->addSeparator();
+    QAction *importSettingsAct = toolsMenu->addAction(tr("Import Settings..."));
+    connect(importSettingsAct, &QAction::triggered, this,
+            &MainWindow::importSettings);
+    QAction *exportSettingsAct = toolsMenu->addAction(tr("Export Settings..."));
+    connect(exportSettingsAct, &QAction::triggered, this,
+            &MainWindow::exportSettings);
 
     // --- Window ---
     QMenu *windowMenu = menuBar()->addMenu(tr("&Window"));
@@ -595,6 +603,58 @@ void MainWindow::runScript()
         statusBar()->showMessage(tr("Script finished"), 4000);
     else
         statusBar()->showMessage(tr("Script error: %1").arg(result.error), 8000);
+}
+
+void MainWindow::exportSettings()
+{
+    if (!m_profileStore) {
+        statusBar()->showMessage(tr("Export Settings: session store unavailable"),
+                                 4000);
+        return;
+    }
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Export Settings"),
+        QDir::home().filePath(QStringLiteral("termsync-settings.json")),
+        tr("TermSync settings (*.json);;All files (*)"));
+    if (path.isEmpty())
+        return;
+    if (!path.contains('.'))
+        path += QStringLiteral(".json");
+
+    if (core::exportProfilesToFile(*m_profileStore, path)) {
+        statusBar()->showMessage(
+            tr("Exported %1 session(s) to %2")
+                .arg(m_profiles.size())
+                .arg(QDir::toNativeSeparators(path)),
+            6000);
+    } else {
+        QMessageBox::warning(this, tr("Export Settings"),
+                             tr("Could not write settings to:\n%1").arg(path));
+    }
+}
+
+void MainWindow::importSettings()
+{
+    if (!m_profileStore) {
+        statusBar()->showMessage(tr("Import Settings: session store unavailable"),
+                                 4000);
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import Settings"), QDir::homePath(),
+        tr("TermSync settings (*.json);;All files (*)"));
+    if (path.isEmpty())
+        return;
+
+    const int count = core::importProfilesFromFile(*m_profileStore, path);
+    if (count < 0) {
+        QMessageBox::warning(
+            this, tr("Import Settings"),
+            tr("Could not read or parse settings from:\n%1").arg(path));
+        return;
+    }
+    loadProfilesIntoTree();
+    statusBar()->showMessage(tr("Imported %1 session(s)").arg(count), 6000);
 }
 
 void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
