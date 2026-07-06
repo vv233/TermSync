@@ -9,6 +9,8 @@ add_library(termsync_ui STATIC
     session_dialogs/KeywordHighlightDialog.cpp
     session_dialogs/TerminalAppearanceDialog.h
     session_dialogs/TerminalAppearanceDialog.cpp
+    session_dialogs/TftpServerDialog.h
+    session_dialogs/TftpServerDialog.cpp
     terminal_view/RawTerminalView.h
     terminal_view/RawTerminalView.cpp
     terminal_view/TerminalWidget.h

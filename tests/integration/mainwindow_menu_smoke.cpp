@@ -78,6 +78,8 @@ int main(int argc, char *argv[])
           "Tools > Import Settings...");
     check(hasAction(tools, QStringLiteral("Export Settings...")),
           "Tools > Export Settings...");
+    check(hasAction(tools, QStringLiteral("TFTP Server...")),
+          "Tools > TFTP Server...");
 
     // Render the File, View and Tools menus so the items can be eyeballed.
     struct { QMenu *m; const char *name; } menus[] = {

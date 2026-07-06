@@ -194,3 +194,13 @@ target_link_libraries(appearance_dialog_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# Render smoke (no admin): the TFTP Server control dialog -> PNG.
+add_executable(tftp_dialog_smoke
+    tftp_dialog_smoke.cpp
+)
+target_link_libraries(tftp_dialog_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)

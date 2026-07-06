@@ -27,6 +27,7 @@
 #include "script/TerminalScriptContext.h"
 #include "session_dialogs/KeywordHighlightDialog.h"
 #include "session_dialogs/TerminalAppearanceDialog.h"
+#include "session_dialogs/TftpServerDialog.h"
 #include "store/ConfigTransfer.h"
 #include "theme/ColorScheme.h"
 #include "serial/SerialConnection.h"
@@ -167,6 +168,9 @@ void MainWindow::createMenus()
     QAction *exportSettingsAct = toolsMenu->addAction(tr("Export Settings..."));
     connect(exportSettingsAct, &QAction::triggered, this,
             &MainWindow::exportSettings);
+    toolsMenu->addSeparator();
+    QAction *tftpAct = toolsMenu->addAction(tr("TFTP Server..."));
+    connect(tftpAct, &QAction::triggered, this, &MainWindow::openTftpServer);
 
     // --- Window ---
     QMenu *windowMenu = menuBar()->addMenu(tr("&Window"));
@@ -851,6 +855,14 @@ void MainWindow::openTerminalAppearance()
         applyAppearance(current);
     }
     statusBar()->showMessage(tr("Applied theme '%1'").arg(m_terminalScheme), 4000);
+}
+
+void MainWindow::openTftpServer()
+{
+    // Non-modal, self-owned (WA_DeleteOnClose); the server stops when closed.
+    auto *dialog = new TftpServerDialog(this);
+    dialog->show();
+    dialog->raise();
 }
 
 void MainWindow::openLocalShell()

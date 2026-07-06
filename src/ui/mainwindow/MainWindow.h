@@ -76,6 +76,9 @@ private:
     void loadAppearance();
     void applyAppearance(TerminalWidget *terminal) const;
 
+    // TFTP server (M20): open the built-in TFTP server control panel.
+    void openTftpServer();
+
     // Runs a JavaScript automation script against the active terminal tab.
     void runScript();
 
