@@ -10,6 +10,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# On Windows, prevent <windows.h> (pulled in transitively via libssh2/curl)
+# from defining the min/max macros, which collide with std::min/std::max and
+# std::numeric_limits<>::max(). Also trim the Win32 header surface.
+if(WIN32)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 # Qt code generation
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
