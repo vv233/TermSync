@@ -133,3 +133,13 @@ target_link_libraries(dualpane_ui_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# Menu smoke (no server): MainWindow M20 menu wiring -> PNGs + assertions.
+add_executable(mainwindow_menu_smoke
+    mainwindow_menu_smoke.cpp
+)
+target_link_libraries(mainwindow_menu_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
