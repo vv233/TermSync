@@ -100,7 +100,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] Terminal (anti-idle, scroll, bell)  → M3/M4
   - [ ] Emulation (terminal type)  → M3
     - [ ] Modes / Emacs / Mapped Keys / Advanced  → M3
-  - [ ] Appearance (font, ANSI colors, cursor)  → M3
+  - [x] Appearance (font, ANSI colors, cursor)  → M3/M20  ✅ *Terminal Appearance picker: font/size + per-scheme bg/fg/cursor/16 ANSI colours*
     - [ ] Window (scrollback, tab title)  → M3/M4
   - [ ] Log File  → M4
   - [ ] X/Y/Zmodem  → M12
@@ -136,7 +136,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] Keyboard mappings + graphical keymap editor  → M3
 - [ ] Personal data folder  → M20
 - [ ] Named firewalls  → M17
-- [ ] Color schemes  → M3
+- [x] Color schemes  → M3/M20  ✅ *14 built-in terminal colour schemes (Termius/Flexoki/Kanagawa/Hacker/Everforest/Night Owl…) + monospace font/size picker via Options > Terminal Appearance, persisted in QSettings*
 - [ ] 128,000-line scrollback  → M3
 - [ ] Emacs mode  → M3
 - [ ] Command window  → M20
@@ -176,7 +176,7 @@ Legend: `→ Mn` = target milestone.
 - [x] Real-time keyword highlighting  → M20  ✅ *KeywordHighlighter (regex/case/whole-word) recolours matched columns in TerminalWidget; Edit > Keyword Highlighting editor dialog*
 - [ ] RDP support  → **(backlog)**
 - [ ] IPv6  → M20
-- [ ] Screen font scaling / dark mode / alpha transparency  → M20
+- [~] Screen font scaling / dark mode / alpha transparency  → M20  ✅ *terminal font size + 14 dark/light colour schemes done (Terminal Appearance); global app dark theme applied; alpha/transparency still a follow-up*
 - [ ] Call from web browser  → M20
 - [ ] Launch remote command on connect  → M15
 - [x] Local shell session  → M20  ✅ *File > Local Shell runs the platform shell (cmd/bash) in a TerminalWidget via LocalShellConnection (QProcess, merged channels); pipe-backed — a ConPTY/openpty PTY backend is a follow-up*
@@ -233,7 +233,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] Quick Connect / New Session wizard  → M4
 - [ ] Sound notifications  → M20
 - [ ] Toolbar and menu customization  → M20
-- [ ] Dark mode  → M20
+- [x] Dark mode  → M20  ✅ *dark app chrome + dark/light terminal colour schemes (Terminal Appearance picker)*
 
 ### Application / Advanced
 - [ ] Multi-platform / auto-update / MSI installers  → M10/M20
