@@ -17,6 +17,7 @@ add_executable(termsync_unit_tests
     unit/scheduler_test.cpp
     unit/bookmark_test.cpp
     unit/text_features_test.cpp
+    unit/session_logger_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests
