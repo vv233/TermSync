@@ -14,6 +14,8 @@ add_library(termsync_core STATIC
     store/ProfileStore.cpp
     store/BookmarkStore.h
     store/BookmarkStore.cpp
+    store/ConfigTransfer.h
+    store/ConfigTransfer.cpp
     log/SessionLogger.h
     log/SessionLogger.cpp
     credential/CredentialStore.h
