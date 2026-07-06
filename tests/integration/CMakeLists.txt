@@ -93,3 +93,13 @@ target_link_libraries(dualpane_render_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# Headless (no server): verifies the TerminalWidget session-logging tee.
+add_executable(session_log_smoke
+    session_log_smoke.cpp
+)
+target_link_libraries(session_log_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)

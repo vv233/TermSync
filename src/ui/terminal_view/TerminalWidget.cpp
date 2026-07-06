@@ -13,6 +13,8 @@
 #include <QWheelEvent>
 #include <algorithm>
 
+#include "log/SessionLogger.h"
+
 namespace termsync::ui {
 
 using terminal::Cell;
@@ -233,6 +235,8 @@ QString TerminalWidget::screenPlainText() const
 
 void TerminalWidget::onDataReceived(const QByteArray &data)
 {
+    if (m_logger && m_logger->isOpen())
+        m_logger->write(data);
     m_parser->parse(data);
     if (m_followTail)
         scrollToBottom();
@@ -247,6 +251,48 @@ void TerminalWidget::scrollToBottom()
 {
     m_topLine = std::max(0, totalDocRows() - visibleRows());
     m_followTail = true;
+}
+
+void TerminalWidget::setLogContext(const QString &host, const QString &session)
+{
+    m_logHost = host;
+    m_logSession = session;
+}
+
+bool TerminalWidget::startLogging(const QString &pathTemplate, bool timestampLines)
+{
+    stopLogging();
+    const QString path = core::expandLogFilename(
+        pathTemplate, m_logHost, m_logSession, QDateTime::currentDateTime());
+
+    auto logger = std::make_unique<core::SessionLogger>();
+    core::SessionLogOptions opts;
+    opts.timestampLines = timestampLines;
+    if (!logger->open(path, opts)) {
+        emit statusMessage(tr("Could not open log file: %1").arg(path));
+        return false;
+    }
+    m_logger = std::move(logger);
+    emit statusMessage(tr("Logging session to %1").arg(m_logger->path()));
+    return true;
+}
+
+void TerminalWidget::stopLogging()
+{
+    if (m_logger) {
+        m_logger->close();
+        m_logger.reset();
+    }
+}
+
+bool TerminalWidget::isLogging() const
+{
+    return m_logger && m_logger->isOpen();
+}
+
+QString TerminalWidget::logPath() const
+{
+    return m_logger ? m_logger->path() : QString();
 }
 
 // ---------------------------------------------------------------------------

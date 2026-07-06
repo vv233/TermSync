@@ -12,6 +12,10 @@
 #include "ssh/SshConnection.h"
 #include "vt/VtParser.h"
 
+namespace termsync::core {
+class SessionLogger;
+}
+
 namespace termsync::ui {
 
 // The real terminal view (M3b): renders a ScreenBuffer with QPainter, feeds
@@ -48,6 +52,16 @@ public:
     // screen contents as plain text.
     void sendText(const QByteArray &bytes);
     QString screenPlainText() const;
+
+    // Session logging (M20b): tee raw received bytes to a file. `pathTemplate`
+    // may contain SecureCRT-style tokens (%H host, %S session, %Y/%M/%D/%h/%m/%s
+    // date-time) which are expanded using the context set by setLogContext().
+    // Returns false if the file could not be opened.
+    void setLogContext(const QString &host, const QString &session);
+    bool startLogging(const QString &pathTemplate, bool timestampLines = false);
+    void stopLogging();
+    bool isLogging() const;
+    QString logPath() const;
 
 signals:
     void statusMessage(const QString &message);
@@ -93,6 +107,11 @@ private:
     core::SshConnection *m_ssh = nullptr; // non-null only for SSH sessions
     std::unique_ptr<terminal::ScreenBuffer> m_screen;
     std::unique_ptr<terminal::VtParser> m_parser;
+
+    // Session logging (M20b).
+    std::unique_ptr<core::SessionLogger> m_logger;
+    QString m_logHost;
+    QString m_logSession;
 
     // Cell metrics (pixels).
     qreal m_cellW = 8.0;

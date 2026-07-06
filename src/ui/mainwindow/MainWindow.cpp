@@ -83,7 +83,9 @@ void MainWindow::createMenus()
     placeholder(fileMenu, tr("Disconnect"));
     placeholder(fileMenu, tr("Clone Session"));
     fileMenu->addSeparator();
-    placeholder(fileMenu, tr("Log Session..."));
+    QAction *logSessionAct = fileMenu->addAction(tr("Log Session..."));
+    connect(logSessionAct, &QAction::triggered, this,
+            &MainWindow::toggleSessionLog);
     placeholder(fileMenu, tr("Print..."));
     fileMenu->addSeparator();
     QAction *exitAct = fileMenu->addAction(tr("E&xit"));
@@ -478,6 +480,7 @@ void MainWindow::startSession(const core::ConnectionProfile &profile,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
+    view->setLogContext(profile.host, baseTitle);
     const int index = m_sessionTabs->addTab(view, baseTitle);
     m_sessionTabs->setCurrentIndex(index);
     connect(view, &TerminalWidget::titleChanged, this,
@@ -541,6 +544,7 @@ void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
             });
     view->setFocus();
 
+    view->setLogContext(profile.host, baseTitle);
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (Telnet) to %1...").arg(profile.host), 4000);
 }
@@ -557,6 +561,7 @@ void MainWindow::startTn3270Session(const core::ConnectionProfile &profile)
     m_sessionTabs->setCurrentIndex(index);
     view->setFocus();
 
+    view->setLogContext(profile.host, baseTitle);
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (TN3270) to %1...").arg(profile.host), 4000);
 }
@@ -573,6 +578,7 @@ void MainWindow::startTn5250Session(const core::ConnectionProfile &profile)
     m_sessionTabs->setCurrentIndex(index);
     view->setFocus();
 
+    view->setLogContext(profile.host, baseTitle);
     conn->connectToHost(profile.host, profile.port ? profile.port : 23);
     statusBar()->showMessage(tr("Connecting (TN5250) to %1...").arg(profile.host), 4000);
 }
@@ -603,6 +609,38 @@ void MainWindow::runScript()
         statusBar()->showMessage(tr("Script finished"), 4000);
     else
         statusBar()->showMessage(tr("Script error: %1").arg(result.error), 8000);
+}
+
+void MainWindow::toggleSessionLog()
+{
+    auto *terminal =
+        qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+    if (!terminal) {
+        statusBar()->showMessage(
+            tr("Log Session: open a terminal tab first"), 4000);
+        return;
+    }
+
+    if (terminal->isLogging()) {
+        const QString path = terminal->logPath();
+        terminal->stopLogging();
+        statusBar()->showMessage(
+            tr("Stopped logging to %1").arg(QDir::toNativeSeparators(path)), 5000);
+        return;
+    }
+
+    // Default name uses SecureCRT-style tokens, expanded by the terminal
+    // (%S session, %Y/%M/%D date) so a fresh, dated file is created.
+    const QString suggested =
+        QDir::home().filePath(QStringLiteral("%S-%Y%M%D-%h%m%s.log"));
+    QString path = QFileDialog::getSaveFileName(
+        this, tr("Log Session"), suggested,
+        tr("Log files (*.log *.txt);;All files (*)"));
+    if (path.isEmpty())
+        return;
+
+    if (!terminal->startLogging(path))
+        return; // startLogging already reported the failure via statusMessage
 }
 
 void MainWindow::exportSettings()
@@ -669,6 +707,7 @@ void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
 
     const QString baseTitle = profile.name.isEmpty() ? sp.portName : profile.name;
+    view->setLogContext(sp.portName, baseTitle);
     const int index = m_sessionTabs->addTab(view, baseTitle);
     m_sessionTabs->setCurrentIndex(index);
     view->setFocus();
