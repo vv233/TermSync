@@ -20,6 +20,8 @@ static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
 #  include <arpa/inet.h>
 #  include <netdb.h>
+#  include <netinet/in.h>
+#  include <netinet/tcp.h>
 #  include <sys/select.h>
 #  include <sys/socket.h>
 #  include <unistd.h>
@@ -237,6 +239,12 @@ private:
             sock = kInvalidSocket;
         }
         freeaddrinfo(res);
+        if (sock != kInvalidSocket) {
+            // Disable Nagle for low-latency keystrokes and SCP throughput.
+            int one = 1;
+            ::setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
+                         reinterpret_cast<const char *>(&one), sizeof(one));
+        }
         return sock;
     }
 
