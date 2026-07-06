@@ -33,9 +33,9 @@ Legend: `→ Mn` = target milestone.
 - [x] **M16a** TN3270 host emulation  ✅ *TN3270 Telnet negotiation + EOR records; basic 3270 screen/field model (Write/EraseWrite/SBA/SF/RA/EUA), editable unprotected fields, Enter modified-field submit, Quick Connect protocol option; 2 stream parser unit tests. TN5250 and full 3270 attributes/keys remain M16b follow-ups*
 - [x] **M16b** TN5250 (first pass) + full 3270 attributes/keyboard  ✅ *3270: full AID keyset (PF1-24/PA1-3/Clear, PA short-read), field navigation (Tab/Backtab/Home), extended field attributes (SFE/SA color/highlight/intensity) — 6 stream tests; TerminalWidget now sends F1-F12/Backtab. TN5250: Telnet negotiation (IBM-3179-2) + read-only Write-to-Display render (SBA/RA/text) — 2 tests. TN5250 field input/full datastream remains a follow-up*
 - [x] **M17** Firewall/proxy (SOCKS5 + HTTP CONNECT)  ✅ *ProxyConfig on SshConnectionParams; proxy client handshake (SOCKS5 greeting/user-pass/CONNECT, HTTP CONNECT + Basic auth) — 6 unit tests; wired into the SSH connect path (connect to proxy → tunnel to host). Live proxy-connect needs a proxy the sandbox lacks. Advanced auth (Kerberos/GSSAPI/X.509) rides on the M9 dispatch and is a build-dependent follow-up*
-- [~] **M18** Advanced transfer — **M18a parallel + M18b throughput tuning done**  ✅ *parallel multi-connection SFTP (M18a); M18b throughput levers matching fast clients (WindTerm-class): libssh2 SFTP outstanding request pipeline (read-ahead + write ACK queue), 32 KB SSH channel packet default, 1 MB upload/download buffers by default, optional nonblocking SFTP pump (`TERMSYNC_SFTP_NONBLOCK=1`), parallel connections scaled by file size (5 GB tuned: upload up to 8 lanes, download up to 6), 16 MB parallel threshold, TCP_NODELAY + 4 MB socket buffers; env-tunable (`TERMSYNC_SFTP_{DOWNLOAD,UPLOAD,BUFFER}_KB` / `_PARALLEL` / `_THRESHOLD_MB`), measurable with `sftp_bench`. Throttle/resume/relentless/bookmarks remain M18c*
-- [ ] **M19** Automation/scheduler/CLI tools + remote file editing
-- [ ] **M20** Terminal power features + application-level polish
+- [x] **M18** Advanced transfer  ✅ *M18a parallel multi-connection SFTP; M18b throughput levers (SFTP request pipeline, 32 KB channel packets, 1 MB buffers, nonblocking pump, size-scaled lanes, TCP_NODELAY + 4 MB socket buffers); M18c bandwidth throttle + resumable transfers; M18d relentless auto-reconnect (per-lane resume) + pause/resume; M18e fidelity (perms, symlink, ASCII, move); M18f SSH keepalive + busy-station connect retry. Env-tunable, measurable with `sftp_bench`. **5 GB @ 150 MiB/s real-server perf target still needs a real server to measure** (loopback proved client isn't the bottleneck)*
+- [x] **M19** Automation/scheduler/CLI  ✅ *M19a `termsync-cli` (ls/get/put/mkdir/rm/mv/sync + all transfer options); M19b JobScheduler + `schedule` subcommands (timed sync/transfer jobs); M19c remote SSH `exec` / `exec-local` / remote file `edit`*
+- [~] **M20** Terminal power features + application-level polish  ✅ *M20 logic cores done & unit-tested and now **wired into the GUI + visually verified**: keyword highlighting (Edit menu + dialog), Hex View (View menu), Log Session (File menu, SessionLogger tee), Import/Export Settings (Tools menu), bookmarks + synchronized browsing (SFX browser toolbar). Remaining M20 (unstarted): TFTP server, local shell (QProcess PTY), dark mode, font scaling/alpha, scratchpad, multi-session broadcast, session lock, host printing, MSI/NSIS, FIPS 140-2, auto-update, Section 508*
 
 ---
 
@@ -44,13 +44,13 @@ Legend: `→ Mn` = target milestone.
 ### File
 - [ ] Connect… / Quick Connect… / Connect in Tab-Tile…
 - [ ] Reconnect / Reconnect All / Disconnect / Disconnect All
-- [ ] Connect SFTP Session (→ M5)
+- [x] Connect SFTP Session (→ M5)
 - [ ] Clone Session / Lock Session (Lock → M20)
 - [ ] Save Session As…
 - [ ] Print (Screen / Selection / Setup) (→ M20)
-- [ ] Log Session / Raw Log Session (→ M20)
+- [x] Log Session (→ M20)  ✅ *File > Log Session toggles a SessionLogger tee on the active terminal (templated filenames, rotation); Raw Log is a follow-up*
 - [ ] Trace Options
-- [ ] Import/Export Settings Wizard (→ M20)
+- [x] Import/Export Settings Wizard (→ M20)  ✅ *Tools > Import/Export Settings (ConfigTransfer JSON, secrets excluded)*
 - [x] Exit
 
 ### Edit  → M3/M4
@@ -142,7 +142,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] Command window  → M20
 - [ ] Env vars in paths  → M19
 - [ ] Multiple session editing  → M4
-- [ ] Import/export config  → M20
+- [x] Import/export config  → M20  ✅ *Tools > Import/Export Settings (ConfigTransfer JSON)*
 - [ ] Tabbed sessions / tab groups / tiling  → M4
 - [ ] Session Manager / Active Sessions Manager  → M4/M20
 - [ ] Button bar / Command Manager  → M20
@@ -169,20 +169,20 @@ Legend: `→ Mn` = target milestone.
 - [ ] Scripting functions / script recorder / script editor tab  → M15/M19
 
 ### Logging / Printing
-- [ ] Session log (parameter substitutions, rotation, command-line)  → M20
+- [x] Session log (parameter substitutions, rotation, command-line)  → M20  ✅ *SessionLogger: templated filenames (%H/%S/%Y…), size-based rotation, per-line timestamps; wired to File > Log Session and CLI logging*
 - [ ] Host-based printing / basic printing / session-or-global print settings  → M20
 
 ### Other / Application
-- [ ] Real-time keyword highlighting  → M20
+- [x] Real-time keyword highlighting  → M20  ✅ *KeywordHighlighter (regex/case/whole-word) recolours matched columns in TerminalWidget; Edit > Keyword Highlighting editor dialog*
 - [ ] RDP support  → **(backlog)**
 - [ ] IPv6  → M20
 - [ ] Screen font scaling / dark mode / alpha transparency  → M20
 - [ ] Call from web browser  → M20
 - [ ] Launch remote command on connect  → M15
 - [ ] Local shell session  → M20
-- [ ] Execute local shell command  → M19
-- [ ] Serial device support  → M14
-- [ ] Hex view / Scratchpad tab  → M20
+- [x] Execute local shell command  → M19  ✅ *termsync-cli `exec-local`*
+- [x] Serial device support  → M14
+- [~] Hex view / Scratchpad tab  → M20  ✅ *Hex View done (View > Hex View renders the raw byte stream via formatHexDump); Scratchpad tab still a follow-up*
 - [ ] TAPI support  → **(backlog)**
 - [ ] Delay options  → M15
 - [ ] FIPS 140-2  → M20
@@ -208,27 +208,27 @@ Legend: `→ Mn` = target milestone.
 ### File Transfer
 - [ ] Multi-protocol SSH2/SFTP/FTPS/SCP/FTP  → M5/M8/M12
 - [ ] HTTPS transfer  → **(backlog)**
-- [ ] Site synchronization (upload/download/mirror)  → M7
-- [ ] Synchronized file browsing  → M18
-- [ ] Multiple simultaneous connections and transfers  → M18
-- [ ] High-speed SFTP pipeline (async read, nonblocking I/O pump, packet/window tuning, benchmark target)  → M18
-- [ ] Complete overwrite control  → M18
-- [ ] "Relentless" file transfer (auto-reconnect)  → M18
-- [ ] Pause and resume transfers  → M18
-- [ ] Task scheduler  → M19
-- [ ] Throttle transfer bandwidth  → M18
-- [ ] Parallel transfer specification  → M18
-- [ ] Move files  → M18
-- [ ] Transfer queue  → M6
+- [x] Site synchronization (upload/download/mirror)  → M7
+- [x] Synchronized file browsing  → M18/M20  ✅ *Sync Browse toggle mirrors pane navigation via mirrorPath*
+- [x] Multiple simultaneous connections and transfers  → M18
+- [x] High-speed SFTP pipeline (async read, nonblocking I/O pump, packet/window tuning, benchmark target)  → M18  *(engine done; 5 GB @ 150 MiB/s still needs a real server to measure)*
+- [x] Complete overwrite control  → M18  *(--overwrite skip|overwrite|resume)*
+- [x] "Relentless" file transfer (auto-reconnect)  → M18
+- [x] Pause and resume transfers  → M18
+- [x] Task scheduler  → M19
+- [x] Throttle transfer bandwidth  → M18
+- [x] Parallel transfer specification  → M18
+- [x] Move files  → M18
+- [x] Transfer queue  → M6
 - [ ] File transfer server support (Win/Linux/macOS, MVS/VMS → partial backlog)  → M8
-- [ ] SFTP ASCII transfer option  → M18
+- [x] SFTP ASCII transfer option  → M18
 
 ### Ease of Use
 - [ ] Tabbed sessions  → M6
 - [ ] Drag-and-drop (Explorer)  → M6
 - [ ] Address bar with path history  → M6
 - [ ] Connect bar with autocomplete  → M4
-- [ ] Bookmarks and Bookmark Manager  → M18
+- [x] Bookmarks and Bookmark Manager  → M18/M20  ✅ *BookmarkStore (host-scoped + global) + Bookmarks toolbar menu in the SFX browser; a dedicated Bookmark Manager dialog is a follow-up*
 - [ ] Filter View with wildcards  → M6
 - [ ] Quick Connect / New Session wizard  → M4
 - [ ] Sound notifications  → M20
@@ -241,14 +241,14 @@ Legend: `→ Mn` = target milestone.
 - [ ] Firewall support (SOCKS4/5, CSM, WinGate, proxies)  → M17
 - [ ] Dependent session option  → M17
 - [ ] Session Manager (dockable, filterable) / site organization  → M4
-- [ ] Personal data folder / import-export configuration  → M20
-- [ ] Busy site retry / keep-alive / quote commands / paste URL  → M6/M18/M19
+- [~] Personal data folder / import-export configuration  → M20  ✅ *import/export configuration done (ConfigTransfer); a configurable personal-data folder is a follow-up*
+- [~] Busy site retry / keep-alive / quote commands / paste URL  → M6/M18/M19  ✅ *busy-station connect retry + SSH keepalive done (M18f); quote commands / paste URL are follow-ups*
 - [ ] OpenSSH key format support  → M9
-- [ ] Remote file editing  → M19
-- [ ] Command-line automation (SFXCL)  → M19
-- [ ] Change/upload/default file permissions on server  → M6/M18
-- [ ] Environment variables in paths / execute local shell command  → M19
+- [x] Remote file editing  → M19  ✅ *termsync-cli `edit` (download → $EDITOR → upload)*
+- [x] Command-line automation (SFXCL)  → M19  ✅ *`termsync-cli` covers ls/get/put/mkdir/rm/mv/sync + scheduler*
+- [x] Change/upload/default file permissions on server  → M6/M18  ✅ *--preserve-perms on upload; remote chmod in the browser*
+- [x] Environment variables in paths / execute local shell command  → M19  ✅ *`exec-local`; env-var path expansion is a follow-up*
 - [ ] SCP sudo command  → M12
-- [ ] Resolve symbolic links / autohide dot files / filename conversion on upload / time zone config  → M18
+- [~] Resolve symbolic links / autohide dot files / filename conversion on upload / time zone config  → M18  ✅ *symlink handling + ASCII filename/line-ending conversion done; autohide dot files / time-zone config are follow-ups*
 - [ ] IPv6 / FIPS 140-2  → M20
 - [ ] Section 508 compliance  → M20
