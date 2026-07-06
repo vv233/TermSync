@@ -14,6 +14,8 @@ add_library(termsync_terminal STATIC
     text/KeywordHighlighter.cpp
     text/HexView.h
     text/HexView.cpp
+    theme/ColorScheme.h
+    theme/ColorScheme.cpp
 )
 
 target_include_directories(termsync_terminal

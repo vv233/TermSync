@@ -19,6 +19,7 @@ add_executable(termsync_unit_tests
     unit/text_features_test.cpp
     unit/session_logger_test.cpp
     unit/config_transfer_test.cpp
+    unit/color_scheme_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests
