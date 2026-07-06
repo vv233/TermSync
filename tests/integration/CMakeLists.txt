@@ -74,6 +74,16 @@ target_link_libraries(telnet_smoke
         Qt6::Core
 )
 
+# Headless (no server): runs the platform shell and checks a marker echoes back.
+add_executable(local_shell_smoke
+    local_shell_smoke.cpp
+)
+target_link_libraries(local_shell_smoke
+    PRIVATE
+        termsync_core
+        Qt6::Core
+)
+
 # GUI render smoke test (needs Qt Widgets + a GUI platform).
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 add_executable(terminal_render_smoke
@@ -139,6 +149,16 @@ add_executable(mainwindow_menu_smoke
     mainwindow_menu_smoke.cpp
 )
 target_link_libraries(mainwindow_menu_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
+# Render smoke (no server): local shell rendered in a TerminalWidget -> PNG.
+add_executable(local_shell_render_smoke
+    local_shell_render_smoke.cpp
+)
+target_link_libraries(local_shell_render_smoke
     PRIVATE
         termsync_ui
         Qt6::Widgets

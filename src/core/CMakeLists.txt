@@ -32,6 +32,8 @@ add_library(termsync_core STATIC
     telnet/TelnetConnection.cpp
     serial/SerialConnection.h
     serial/SerialConnection.cpp
+    local/LocalShellConnection.h
+    local/LocalShellConnection.cpp
     tn3270/Tn3270Stream.h
     tn3270/Tn3270Stream.cpp
     tn3270/Tn3270Connection.h

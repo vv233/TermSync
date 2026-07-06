@@ -22,6 +22,7 @@
 #include <QWidget>
 
 #include "ScriptEngine.h"
+#include "local/LocalShellConnection.h"
 #include "script/TerminalScriptContext.h"
 #include "session_dialogs/KeywordHighlightDialog.h"
 #include "store/ConfigTransfer.h"
@@ -80,6 +81,8 @@ void MainWindow::createMenus()
     placeholder(fileMenu, tr("Connect in Tab..."));
     QAction *connectSftpAct = fileMenu->addAction(tr("Connect SFTP Session"));
     connect(connectSftpAct, &QAction::triggered, this, &MainWindow::openQuickSftp);
+    QAction *localShellAct = fileMenu->addAction(tr("Local Shell"));
+    connect(localShellAct, &QAction::triggered, this, &MainWindow::openLocalShell);
     fileMenu->addSeparator();
     placeholder(fileMenu, tr("Reconnect"));
     placeholder(fileMenu, tr("Disconnect"));
@@ -772,6 +775,30 @@ void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
     conn->open(sp);
     statusBar()->showMessage(
         tr("Opening serial %1 @ %2 baud...").arg(sp.portName).arg(sp.baudRate), 4000);
+}
+
+void MainWindow::openLocalShell()
+{
+    auto *conn = new core::LocalShellConnection;
+    auto *view = new TerminalWidget(conn, this); // takes ownership of conn
+    connect(view, &TerminalWidget::statusMessage, this,
+            [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+
+    const QString title = tr("Local Shell");
+    view->setLogContext(QStringLiteral("localhost"), title);
+    const int index = m_sessionTabs->addTab(view, title);
+    m_sessionTabs->setCurrentIndex(index);
+    connect(view, &TerminalWidget::titleChanged, this,
+            [this, view](const QString &t) {
+                const int i = m_sessionTabs->indexOf(view);
+                if (i >= 0 && !t.isEmpty())
+                    m_sessionTabs->setTabText(i, t);
+            });
+    view->setFocus();
+
+    conn->start();
+    statusBar()->showMessage(
+        tr("Started local shell (%1)").arg(conn->shellProgram()), 4000);
 }
 
 bool MainWindow::verifyHostKey(const QString &host, quint16 port,

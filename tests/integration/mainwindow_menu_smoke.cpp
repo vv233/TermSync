@@ -66,6 +66,7 @@ int main(int argc, char *argv[])
     QMenu *view = menuByTitle(bar, QStringLiteral("View"));
     QMenu *tools = menuByTitle(bar, QStringLiteral("Tools"));
 
+    check(hasAction(file, QStringLiteral("Local Shell")), "File > Local Shell");
     check(hasAction(file, QStringLiteral("Log Session...")), "File > Log Session...");
     check(hasAction(edit, QStringLiteral("Keyword Highlighting...")),
           "Edit > Keyword Highlighting...");

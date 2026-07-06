@@ -64,6 +64,9 @@ private:
     void startTn5250Session(const core::ConnectionProfile &profile);
     void startSerialSession(const core::ConnectionProfile &profile);
 
+    // Local Shell (M20): open a terminal tab backed by the platform shell.
+    void openLocalShell();
+
     // Runs a JavaScript automation script against the active terminal tab.
     void runScript();
 
