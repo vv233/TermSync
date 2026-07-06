@@ -179,7 +179,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] Screen font scaling / dark mode / alpha transparency  → M20
 - [ ] Call from web browser  → M20
 - [ ] Launch remote command on connect  → M15
-- [ ] Local shell session  → M20
+- [x] Local shell session  → M20  ✅ *File > Local Shell runs the platform shell (cmd/bash) in a TerminalWidget via LocalShellConnection (QProcess, merged channels); pipe-backed — a ConPTY/openpty PTY backend is a follow-up*
 - [x] Execute local shell command  → M19  ✅ *termsync-cli `exec-local`*
 - [x] Serial device support  → M14
 - [~] Hex view / Scratchpad tab  → M20  ✅ *Hex View done (View > Hex View renders the raw byte stream via formatHexDump); Scratchpad tab still a follow-up*
