@@ -14,8 +14,14 @@
 #include <algorithm>
 
 #include "log/SessionLogger.h"
+#include "text/HexView.h"
 
 namespace termsync::ui {
+
+namespace {
+// Cap on the rolling hex-view buffer: keep roughly the last 128 KiB of stream.
+constexpr int kHexBufferCap = 128 * 1024;
+} // namespace
 
 using terminal::Cell;
 using terminal::CellFlag;
@@ -246,6 +252,12 @@ void TerminalWidget::onDataReceived(const QByteArray &data)
 {
     if (m_logger && m_logger->isOpen())
         m_logger->write(data);
+
+    // Keep a rolling buffer of raw bytes for the Hex View, capped in size.
+    m_hexBuffer.append(data);
+    if (m_hexBuffer.size() > kHexBufferCap)
+        m_hexBuffer.remove(0, m_hexBuffer.size() - kHexBufferCap);
+
     m_parser->parse(data);
     if (m_followTail)
         scrollToBottom();
@@ -316,6 +328,14 @@ const QVector<terminal::HighlightRule> &TerminalWidget::highlightRules() const
     return m_highlighter.rules();
 }
 
+void TerminalWidget::setHexView(bool on)
+{
+    if (m_hexView == on)
+        return;
+    m_hexView = on;
+    update();
+}
+
 // ---------------------------------------------------------------------------
 // Painting
 // ---------------------------------------------------------------------------
@@ -323,6 +343,11 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
 {
     QPainter painter(this);
     painter.fillRect(event->rect(), m_defaultBg);
+
+    if (m_hexView) {
+        paintHexView(painter);
+        return;
+    }
 
     const int rows = visibleRows();
     const int cols = m_screen->cols();
@@ -423,6 +448,26 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
                                  QPointF(cellRect.right(), uy));
             }
         }
+    }
+}
+
+void TerminalWidget::paintHexView(QPainter &painter)
+{
+    const QString dump = terminal::formatHexDump(m_hexBuffer);
+    const QList<QStringView> lines = QStringView(dump).split(u'\n');
+
+    const int rows = visibleRows();
+    // Show the tail of the dump (most recent bytes), like a live console.
+    int first = 0;
+    if (lines.size() > rows)
+        first = lines.size() - rows;
+
+    painter.setFont(font());
+    painter.setPen(m_defaultFg);
+    int viewRow = 0;
+    for (int i = first; i < lines.size() && viewRow < rows; ++i, ++viewRow) {
+        const qreal y = m_padY + viewRow * m_cellH;
+        painter.drawText(QPointF(m_padX, y + m_baseline), lines.at(i).toString());
     }
 }
 

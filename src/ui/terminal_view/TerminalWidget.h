@@ -69,6 +69,12 @@ public:
     void setHighlightRules(const QVector<terminal::HighlightRule> &rules);
     const QVector<terminal::HighlightRule> &highlightRules() const;
 
+    // Hex View (M20a): render the raw incoming byte stream as a hex dump instead
+    // of the emulated screen. The terminal keeps parsing underneath, so toggling
+    // back restores the live screen.
+    void setHexView(bool on);
+    bool isHexView() const { return m_hexView; }
+
 signals:
     void statusMessage(const QString &message);
     void titleChanged(const QString &title);
@@ -105,6 +111,7 @@ private:
     void clearSelection();
 
     void scrollToBottom();
+    void paintHexView(class QPainter &painter); // renders m_hexBuffer as a dump
 
     void initView();       // shared widget setup (font, blink, metrics)
     void wireConnection(); // connect the common AbstractTerminalConnection signals
@@ -122,6 +129,10 @@ private:
     // Keyword highlighting (M20a).
     terminal::KeywordHighlighter m_highlighter;
     QVector<QColor> m_highlightColors; // colorId -> colour (wraps)
+
+    // Hex View (M20a): rolling buffer of raw received bytes + mode flag.
+    bool m_hexView = false;
+    QByteArray m_hexBuffer;
 
     // Cell metrics (pixels).
     qreal m_cellW = 8.0;

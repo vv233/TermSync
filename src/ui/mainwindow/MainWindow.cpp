@@ -11,6 +11,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -113,6 +114,11 @@ void MainWindow::createMenus()
     placeholder(viewMenu, tr("Command Window"));
     placeholder(viewMenu, tr("Button Bar"));
     placeholder(viewMenu, tr("Status Bar"));
+    viewMenu->addSeparator();
+    m_hexViewAct = viewMenu->addAction(tr("Hex View"));
+    m_hexViewAct->setCheckable(true);
+    connect(m_hexViewAct, &QAction::toggled, this,
+            &MainWindow::setHexViewForCurrent);
     viewMenu->addSeparator();
     placeholder(viewMenu, tr("Full Screen"));
 
@@ -228,6 +234,8 @@ void MainWindow::createCentralArea()
                 m_sessionTabs->removeTab(index);
                 w->deleteLater();
             });
+    connect(m_sessionTabs, &QTabWidget::currentChanged, this,
+            [this](int) { syncHexViewAction(); });
     setCentralWidget(m_sessionTabs);
 }
 
@@ -614,6 +622,32 @@ void MainWindow::runScript()
         statusBar()->showMessage(tr("Script finished"), 4000);
     else
         statusBar()->showMessage(tr("Script error: %1").arg(result.error), 8000);
+}
+
+void MainWindow::setHexViewForCurrent(bool on)
+{
+    auto *terminal =
+        qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+    if (!terminal) {
+        if (on) // only complain when the user tried to turn it on
+            statusBar()->showMessage(
+                tr("Hex View: open a terminal tab first"), 4000);
+        return;
+    }
+    terminal->setHexView(on);
+    statusBar()->showMessage(
+        on ? tr("Hex View on") : tr("Hex View off"), 3000);
+}
+
+void MainWindow::syncHexViewAction()
+{
+    if (!m_hexViewAct)
+        return;
+    auto *terminal =
+        qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+    QSignalBlocker block(m_hexViewAct); // don't re-toggle the terminal
+    m_hexViewAct->setChecked(terminal && terminal->isHexView());
+    m_hexViewAct->setEnabled(terminal != nullptr);
 }
 
 void MainWindow::editKeywordHighlighting()

@@ -7,6 +7,7 @@
 #include "model/ConnectionProfile.h"
 #include "store/ProfileStore.h"
 
+class QAction;
 class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -77,6 +78,11 @@ private:
     // Keyword Highlighting (M20a): edit the active terminal's highlight rules.
     void editKeywordHighlighting();
 
+    // Hex View (M20a): toggle the raw-byte hex dump on the active terminal, and
+    // keep the menu check in sync when the current tab changes.
+    void setHexViewForCurrent(bool on);
+    void syncHexViewAction();
+
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.
     bool verifyHostKey(const QString &host, quint16 port,
@@ -85,6 +91,7 @@ private:
     QTabWidget *m_sessionTabs = nullptr;
     QDockWidget *m_sessionManagerDock = nullptr;
     QTreeWidget *m_sessionTree = nullptr;
+    QAction *m_hexViewAct = nullptr;
 
     std::unique_ptr<core::ProfileStore> m_profileStore;
     std::unique_ptr<core::CredentialStore> m_credentialStore;

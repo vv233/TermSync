@@ -113,3 +113,13 @@ target_link_libraries(highlight_render_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# Render smoke (no server): TerminalWidget Hex View -> PNG.
+add_executable(hexview_render_smoke
+    hexview_render_smoke.cpp
+)
+target_link_libraries(hexview_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
