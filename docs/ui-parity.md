@@ -162,7 +162,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] Send/receive ASCII / Send Binary  → M6/M12
 - [ ] SFTP in a tab  → M5
 - [ ] Drag-and-drop file transfer  → M6
-- [ ] Built-in TFTP server  → M20
+- [x] Built-in TFTP server  → M20  ✅ *RFC 1350 UDP server (RRQ/WRQ, per-transfer TIDs, timeout+retransmit, read-only/overwrite policy, path-traversal guard) with a Tools > TFTP Server control panel; octet mode (netascii is a follow-up). 7 protocol unit tests + loopback round-trip smoke*
 
 ### Scripting
 - [ ] ActiveX scripting languages / Python  → M15
