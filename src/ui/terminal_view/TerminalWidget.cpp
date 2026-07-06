@@ -148,6 +148,11 @@ void TerminalWidget::initView()
     m_parser->onTitleChanged = [this](const QString &t) { emit titleChanged(t); };
     m_parser->onApplicationCursorKeys = [this](bool on) { m_appCursorKeys = on; };
 
+    // Start on the default colour scheme (MainWindow may override per app prefs).
+    if (const terminal::ColorScheme *s =
+            terminal::findScheme(terminal::defaultSchemeName()))
+        applyColorScheme(*s);
+
     // Default keyword-highlight palette (colorId wraps over these).
     m_highlightColors = {
         QColor(0xff, 0xd7, 0x00), // amber
@@ -336,6 +341,36 @@ void TerminalWidget::setHexView(bool on)
     update();
 }
 
+void TerminalWidget::applyColorScheme(const terminal::ColorScheme &scheme)
+{
+    auto toColor = [](uint32_t v) {
+        return QColor((v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
+    };
+    m_defaultBg = toColor(scheme.background);
+    m_defaultFg = toColor(scheme.foreground);
+    m_cursorColor = toColor(scheme.cursor);
+    // The scheme reseeds the 16 base ANSI colours; the 6x6x6 cube + greys above
+    // index 15 are scheme-independent and stay as built by buildPalette().
+    for (int i = 0; i < 16 && i < m_palette.size(); ++i)
+        m_palette[i] = toColor(scheme.ansi[i]);
+    m_schemeName = scheme.name;
+    update();
+}
+
+void TerminalWidget::setTerminalFont(const QFont &f)
+{
+    setFont(f);
+    recomputeCellMetrics();
+    // Re-flow the screen to the new cell grid.
+    const int cols = visibleCols();
+    const int rows = visibleRows();
+    m_screen->resize(cols, rows);
+    if (m_connected)
+        m_connection->resize(cols, rows);
+    scrollToBottom();
+    update();
+}
+
 // ---------------------------------------------------------------------------
 // Painting
 // ---------------------------------------------------------------------------
@@ -429,8 +464,8 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
             const bool isCursor = showCursor && docRow == cursorDocRow &&
                                   col == m_screen->cursorCol();
             if (isCursor) {
-                painter.fillRect(cellRect, fg);
-                painter.setPen(bg);
+                painter.fillRect(cellRect, m_cursorColor);
+                painter.setPen(m_defaultBg);
             } else {
                 painter.setPen(fg);
             }

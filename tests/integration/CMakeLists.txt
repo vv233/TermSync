@@ -163,3 +163,13 @@ target_link_libraries(local_shell_render_smoke
         termsync_ui
         Qt6::Widgets
 )
+
+# Render smoke (no server): terminal colour scheme + font -> PNG.
+add_executable(theme_render_smoke
+    theme_render_smoke.cpp
+)
+target_link_libraries(theme_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)

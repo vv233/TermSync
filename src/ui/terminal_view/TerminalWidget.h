@@ -11,6 +11,7 @@
 #include "screen/ScreenBuffer.h"
 #include "ssh/SshConnection.h"
 #include "text/KeywordHighlighter.h"
+#include "theme/ColorScheme.h"
 #include "vt/VtParser.h"
 
 namespace termsync::core {
@@ -74,6 +75,14 @@ public:
     // back restores the live screen.
     void setHexView(bool on);
     bool isHexView() const { return m_hexView; }
+
+    // Appearance (M20): terminal colour scheme + font. applyColorScheme recolours
+    // the background/foreground/cursor and the 16 ANSI palette entries;
+    // setTerminalFont changes the glyph font and re-flows the screen.
+    void applyColorScheme(const terminal::ColorScheme &scheme);
+    QString colorSchemeName() const { return m_schemeName; }
+    void setTerminalFont(const QFont &font);
+    QFont terminalFont() const { return font(); }
 
 signals:
     void statusMessage(const QString &message);
@@ -163,6 +172,8 @@ private:
     QVector<QColor> m_palette; // 256-entry xterm palette
     QColor m_defaultFg;
     QColor m_defaultBg;
+    QColor m_cursorColor{0xc8, 0xd0, 0xe8};
+    QString m_schemeName;
 };
 
 } // namespace termsync::ui
