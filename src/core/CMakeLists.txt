@@ -26,6 +26,8 @@ add_library(termsync_core STATIC
     net/ProxyClient.cpp
     ssh/SshConnection.h
     ssh/SshConnection.cpp
+    ssh/X11Auth.h
+    ssh/X11Auth.cpp
     ssh/PortForwarder.h
     ssh/PortForwarder.cpp
     telnet/TelnetConnection.h
