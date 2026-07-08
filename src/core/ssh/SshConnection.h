@@ -37,10 +37,12 @@ struct SshConnectionParams
     ProxyConfig proxy;
 
     // X11 forwarding (M11): request X11 on the shell channel and tunnel remote
-    // X clients to a local X server at 127.0.0.1:(6000 + x11Display), with
-    // ssh -X-style MIT-MAGIC-COOKIE-1 spoofing (see core::x11).
+    // X clients to an X server at x11Host:(6000 + x11Display), with ssh -X-style
+    // MIT-MAGIC-COOKIE-1 spoofing (see core::x11). x11Host is normally the local
+    // machine but may point elsewhere (e.g. a WSL-hosted X server).
     bool x11Forwarding = false;
     int x11Display = 0;
+    QString x11Host = QStringLiteral("127.0.0.1");
 
     // Initial PTY size (updated later via SshConnection::resize()).
     int cols = 80;

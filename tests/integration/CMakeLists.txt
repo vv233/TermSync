@@ -74,6 +74,17 @@ target_link_libraries(telnet_smoke
         Qt6::Core
 )
 
+# X11 forwarding end-to-end (needs a live SSH server + a reachable X server).
+add_executable(x11_smoke
+    x11_smoke.cpp
+)
+target_link_libraries(x11_smoke
+    PRIVATE
+        termsync_core
+        Qt6::Core
+        Qt6::Network
+)
+
 # Headless (no server): runs the platform shell and checks a marker echoes back.
 add_executable(local_shell_smoke
     local_shell_smoke.cpp

@@ -444,11 +444,13 @@ private:
                                             m_params.cols, m_params.rows, 0, 0)) {
             return false;
         }
-        if (libssh2_channel_shell(m_channel))
-            return false;
-
+        // X11 forwarding must be requested BEFORE the shell starts so the server
+        // sets DISPLAY in the shell's environment.
         if (m_params.x11Forwarding)
             requestX11();
+
+        if (libssh2_channel_shell(m_channel))
+            return false;
         return true;
     }
 
@@ -482,7 +484,7 @@ public:
         connect(pipe->socket, &QTcpSocket::disconnected, this,
                 [this, pipe] { closeX11Pipe(pipe); });
         m_x11Pipes.append(pipe);
-        pipe->socket->connectToHost(QStringLiteral("127.0.0.1"),
+        pipe->socket->connectToHost(m_params.x11Host,
                                     quint16(6000 + m_params.x11Display));
     }
 
