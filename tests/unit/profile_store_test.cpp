@@ -89,6 +89,7 @@ TEST(ProfileStore, PersistsAcrossReopen)
     const QString path = dir.filePath("p.db");
     ConnectionProfile p = makeProfile("persist", "p.example.com");
     p.savePassword = true;
+    p.x11Forwarding = true;
     {
         ProfileStore store;
         ASSERT_TRUE(store.open(path));
@@ -101,6 +102,7 @@ TEST(ProfileStore, PersistsAcrossReopen)
         ASSERT_EQ(profiles.size(), 1);
         EXPECT_EQ(profiles[0].name, "persist");
         EXPECT_TRUE(profiles[0].savePassword);
+        EXPECT_TRUE(profiles[0].x11Forwarding); // schema v2 column round-trips
     }
 }
 

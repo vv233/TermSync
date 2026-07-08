@@ -72,6 +72,9 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
         if (serial)
             m_port->setValue(115200);
         m_port->setMaximum(serial ? 4000000 : 65535);
+        // X11 forwarding only applies to SSH2 terminal sessions.
+        if (m_x11Forwarding)
+            m_x11Forwarding->setVisible(proto == core::Protocol::SSH2);
     });
 
     auto *form = new QFormLayout;
@@ -110,6 +113,9 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
     connect(m_authMethod, &QComboBox::currentIndexChanged, this,
             [updateAuthUi](int) { updateAuthUi(); });
     updateAuthUi();
+
+    m_x11Forwarding = new QCheckBox(tr("Forward X11 (remote GUI apps)"), this);
+    form->addRow(QString(), m_x11Forwarding);
 
     m_saveSession = new QCheckBox(tr("Save session"), this);
     m_savePassword = new QCheckBox(tr("Save password"), this);
@@ -166,6 +172,7 @@ core::ConnectionProfile QuickConnectDialog::toProfile() const
     p.authMethod = static_cast<core::AuthMethod>(m_authMethod->currentData().toInt());
     p.privateKeyPath = m_keyPath->text().trimmed();
     p.savePassword = savePassword();
+    p.x11Forwarding = m_x11Forwarding->isChecked();
     return p;
 }
 
@@ -183,6 +190,7 @@ core::SshConnectionParams QuickConnectDialog::params() const
         p.passphrase = m_password->text();
     else
         p.password = m_password->text();
+    p.x11Forwarding = m_x11Forwarding->isChecked();
     return p;
 }
 

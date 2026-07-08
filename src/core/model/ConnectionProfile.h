@@ -43,6 +43,9 @@ struct ConnectionProfile
     bool savePassword = false;   // whether the password is kept in the vault
     QString privateKeyPath;      // for PublicKey auth (M9)
 
+    // X11 forwarding for SSH2 terminal sessions (M11).
+    bool x11Forwarding = false;
+
     // Terminal defaults (expanded in later milestones).
     int cols = 80;
     int rows = 24;

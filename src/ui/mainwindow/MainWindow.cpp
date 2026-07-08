@@ -488,6 +488,7 @@ void MainWindow::startSession(const core::ConnectionProfile &profile,
     // core::AuthMethod and core::SshAuthMethod share ordering.
     params.authMethod = static_cast<core::SshAuthMethod>(profile.authMethod);
     params.privateKeyPath = profile.privateKeyPath;
+    params.x11Forwarding = profile.x11Forwarding;
     if (profile.authMethod == core::AuthMethod::PublicKey)
         params.passphrase = password;
     else

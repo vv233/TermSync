@@ -10,7 +10,7 @@
 namespace termsync::core {
 
 namespace {
-constexpr int kSchemaVersion = 1;
+constexpr int kSchemaVersion = 2;
 int g_counter = 0;
 } // namespace
 
@@ -97,7 +97,14 @@ bool ProfileStore::applyMigrations()
             m_lastError = q.lastError().text();
             return false;
         }
-        q.exec(QStringLiteral("PRAGMA user_version = %1").arg(kSchemaVersion));
+        q.exec(QStringLiteral("PRAGMA user_version = 1"));
+    }
+
+    if (version < 2) {
+        QSqlQuery q(db);
+        q.exec(QStringLiteral("ALTER TABLE profiles ADD COLUMN"
+                              " x11_forwarding INTEGER NOT NULL DEFAULT 0"));
+        q.exec(QStringLiteral("PRAGMA user_version = 2"));
     }
     return true;
 }
@@ -109,7 +116,8 @@ QVector<ConnectionProfile> ProfileStore::allProfiles() const
     QSqlQuery q(db);
     q.exec(QStringLiteral(
         "SELECT id, name, folder_path, protocol, host, port, username,"
-        " auth_method, save_password, private_key_path, cols, rows"
+        " auth_method, save_password, private_key_path, cols, rows,"
+        " x11_forwarding"
         " FROM profiles ORDER BY folder_path, name"));
     while (q.next()) {
         ConnectionProfile p;
@@ -125,6 +133,7 @@ QVector<ConnectionProfile> ProfileStore::allProfiles() const
         p.privateKeyPath = q.value(9).toString();
         p.cols = q.value(10).toInt();
         p.rows = q.value(11).toInt();
+        p.x11Forwarding = q.value(12).toBool();
         result.append(p);
     }
     return result;
@@ -137,14 +146,14 @@ bool ProfileStore::upsert(const ConnectionProfile &profile)
     q.prepare(QStringLiteral(
         "INSERT INTO profiles (id, name, folder_path, protocol, host, port,"
         " username, auth_method, save_password, private_key_path, cols, rows,"
-        " created_at, updated_at)"
+        " x11_forwarding, created_at, updated_at)"
         " VALUES (:id, :name, :folder, :protocol, :host, :port, :username,"
-        " :auth, :savepw, :key, :cols, :rows, :created, :updated)"
+        " :auth, :savepw, :key, :cols, :rows, :x11, :created, :updated)"
         " ON CONFLICT(id) DO UPDATE SET"
         " name=:name, folder_path=:folder, protocol=:protocol, host=:host,"
         " port=:port, username=:username, auth_method=:auth,"
         " save_password=:savepw, private_key_path=:key, cols=:cols, rows=:rows,"
-        " updated_at=:updated"));
+        " x11_forwarding=:x11, updated_at=:updated"));
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     q.bindValue(":id", profile.id);
     q.bindValue(":name", profile.name);
@@ -158,6 +167,7 @@ bool ProfileStore::upsert(const ConnectionProfile &profile)
     q.bindValue(":key", profile.privateKeyPath);
     q.bindValue(":cols", profile.cols);
     q.bindValue(":rows", profile.rows);
+    q.bindValue(":x11", profile.x11Forwarding ? 1 : 0);
     q.bindValue(":created", now);
     q.bindValue(":updated", now);
     if (!q.exec()) {
