@@ -4,10 +4,13 @@
 #include <QMetaObject>
 #include <QMutex>
 #include <QSocketNotifier>
+#include <QTcpSocket>
 #include <QThread>
 #include <QTimer>
 #include <cstdlib>
 #include <cstring>
+
+#include "ssh/X11Auth.h"
 
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -61,6 +64,10 @@ void closeSocket(socket_t s)
     ::close(s);
 #endif
 }
+
+// libssh2 invokes this when the remote opens a forwarded X11 connection; it
+// dispatches to the SshWorker stored in the session abstract (defined below).
+LIBSSH2_X11_OPEN_FUNC(x11OpenTrampoline);
 
 } // namespace
 
@@ -193,6 +200,10 @@ private slots:
     {
         if (!m_channel)
             return;
+
+        // Service any forwarded X11 connections on the same session.
+        if (!m_x11Pipes.isEmpty())
+            pumpX11All();
 
         char buf[4096];
         for (;;) {
@@ -435,8 +446,47 @@ private:
         }
         if (libssh2_channel_shell(m_channel))
             return false;
+
+        if (m_params.x11Forwarding)
+            requestX11();
         return true;
     }
+
+    // Requests X11 forwarding on the shell channel with a freshly-minted proxy
+    // cookie, and arms the callback that accepts forwarded X11 channels.
+    void requestX11()
+    {
+        m_proxyCookie = x11::generateCookie();
+        m_localCookie = x11::readLocalCookie(m_params.x11Display);
+        *libssh2_session_abstract(m_session) = this;
+        libssh2_session_callback_set(m_session, LIBSSH2_CALLBACK_X11,
+                                     reinterpret_cast<void *>(&x11OpenTrampoline));
+        const QByteArray hex = x11::cookieToHex(m_proxyCookie).toLatin1();
+        // single_connection = 0: allow multiple X11 clients; screen 0. The local
+        // display only selects the X-server socket port (6000 + x11Display).
+        libssh2_channel_x11_req_ex(m_channel, 0, x11::kAuthProtocol(),
+                                   hex.constData(), 0);
+    }
+
+public:
+    // Called (on this worker thread) from the libssh2 X11 open callback when the
+    // remote opens a forwarded X11 connection. Connects to the local X server
+    // and registers a proxy pipe; the cookie swap happens on the first packet.
+    void onX11Open(LIBSSH2_CHANNEL *channel)
+    {
+        auto *pipe = new X11Pipe;
+        pipe->channel = channel;
+        pipe->socket = new QTcpSocket(this);
+        connect(pipe->socket, &QTcpSocket::readyRead, this,
+                &SshWorker::pumpX11All);
+        connect(pipe->socket, &QTcpSocket::disconnected, this,
+                [this, pipe] { closeX11Pipe(pipe); });
+        m_x11Pipes.append(pipe);
+        pipe->socket->connectToHost(QStringLiteral("127.0.0.1"),
+                                    quint16(6000 + m_params.x11Display));
+    }
+
+private:
 
     // Blocks until the socket is ready in the direction libssh2 wants.
     void waitSocket()
@@ -468,6 +518,114 @@ private:
         teardown();
     }
 
+    // A forwarded X11 connection: an SSH x11 channel bridged to a local X socket.
+    struct X11Pipe
+    {
+        LIBSSH2_CHANNEL *channel = nullptr;
+        QTcpSocket *socket = nullptr;
+        QByteArray setupBuf;    // buffers the initial X11 setup packet
+        bool setupDone = false; // true once the cookie swap has been applied
+    };
+
+    void closeX11Pipe(X11Pipe *pipe)
+    {
+        if (!m_x11Pipes.removeOne(pipe))
+            return;
+        if (pipe->channel) {
+            libssh2_channel_close(pipe->channel);
+            libssh2_channel_free(pipe->channel);
+        }
+        if (pipe->socket) {
+            pipe->socket->disconnect(this);
+            pipe->socket->deleteLater();
+        }
+        delete pipe;
+    }
+
+    // Bridges each X11 pipe both ways. Called from the main I/O pump and from the
+    // local X socket's readyRead, so both readable ends are drained promptly.
+    void pumpX11All()
+    {
+        for (X11Pipe *pipe : QVector<X11Pipe *>(m_x11Pipes)) {
+            if (!pipe->channel)
+                continue;
+
+            // channel (remote X client) -> local X server, swapping the cookie
+            // in the first setup packet.
+            char buf[16384];
+            for (;;) {
+                const ssize_t n =
+                    libssh2_channel_read(pipe->channel, buf, sizeof(buf));
+                if (n > 0) {
+                    if (pipe->setupDone) {
+                        pipe->socket->write(buf, n);
+                    } else {
+                        pipe->setupBuf.append(buf, int(n));
+                        if (!applyX11Setup(pipe))
+                            break; // pipe closed (mismatch) or needs more bytes
+                    }
+                    continue;
+                }
+                if (n == LIBSSH2_ERROR_EAGAIN)
+                    break;
+                if (n == 0 && !libssh2_channel_eof(pipe->channel))
+                    break;
+                closeX11Pipe(pipe);
+                break;
+            }
+            if (!m_x11Pipes.contains(pipe))
+                continue;
+
+            // local X server -> channel (remote X client)
+            while (pipe->socket && pipe->socket->bytesAvailable() > 0) {
+                const QByteArray data = pipe->socket->readAll();
+                int off = 0;
+                while (off < data.size()) {
+                    const ssize_t n = libssh2_channel_write(
+                        pipe->channel, data.constData() + off, data.size() - off);
+                    if (n == LIBSSH2_ERROR_EAGAIN) {
+                        waitSocket();
+                        continue;
+                    }
+                    if (n < 0) {
+                        closeX11Pipe(pipe);
+                        break;
+                    }
+                    off += int(n);
+                }
+                if (!m_x11Pipes.contains(pipe))
+                    break;
+            }
+        }
+    }
+
+    // Tries to complete the X11 setup packet in pipe->setupBuf: rewrites the
+    // cookie and flushes to the local socket. Returns false if the pipe was
+    // closed or the packet is still incomplete.
+    bool applyX11Setup(X11Pipe *pipe)
+    {
+        const x11::RewriteResult r =
+            x11::rewriteSetup(pipe->setupBuf, m_proxyCookie, m_localCookie);
+        switch (r.status) {
+        case x11::RewriteStatus::NeedMore:
+            return false; // buffer more from the channel
+        case x11::RewriteStatus::Mismatch:
+        case x11::RewriteStatus::Malformed:
+            closeX11Pipe(pipe);
+            return false;
+        case x11::RewriteStatus::Ok:
+        case x11::RewriteStatus::Passthrough:
+            pipe->socket->write(r.rewritten);
+            // Forward any bytes that followed the setup packet verbatim.
+            if (r.consumed < pipe->setupBuf.size())
+                pipe->socket->write(pipe->setupBuf.mid(r.consumed));
+            pipe->setupBuf.clear();
+            pipe->setupDone = true;
+            return true;
+        }
+        return true;
+    }
+
     void teardown()
     {
         if (m_readNotifier) {
@@ -480,6 +638,8 @@ private:
             m_pump->deleteLater();
             m_pump = nullptr;
         }
+        while (!m_x11Pipes.isEmpty())
+            closeX11Pipe(m_x11Pipes.first());
         if (m_channel) {
             libssh2_channel_close(m_channel);
             libssh2_channel_free(m_channel);
@@ -504,7 +664,24 @@ private:
     QTimer *m_pump = nullptr;
     QSocketNotifier *m_readNotifier = nullptr;
     bool m_reportedClose = false;
+
+    // X11 forwarding state.
+    QByteArray m_proxyCookie; // cookie we handed the remote
+    QByteArray m_localCookie; // real local X-server cookie (may be empty)
+    QVector<X11Pipe *> m_x11Pipes;
 };
+
+namespace {
+// Defined here (after SshWorker) so it can dispatch to the worker.
+LIBSSH2_X11_OPEN_FUNC(x11OpenTrampoline)
+{
+    (void)session;
+    (void)shost;
+    (void)sport;
+    if (auto *worker = static_cast<SshWorker *>(*abstract))
+        worker->onX11Open(channel);
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // SshConnection — public facade (UI thread).

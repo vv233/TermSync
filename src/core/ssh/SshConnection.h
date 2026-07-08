@@ -36,6 +36,12 @@ struct SshConnectionParams
     // Firewall/proxy to reach the host through (M17). None = direct connect.
     ProxyConfig proxy;
 
+    // X11 forwarding (M11): request X11 on the shell channel and tunnel remote
+    // X clients to a local X server at 127.0.0.1:(6000 + x11Display), with
+    // ssh -X-style MIT-MAGIC-COOKIE-1 spoofing (see core::x11).
+    bool x11Forwarding = false;
+    int x11Display = 0;
+
     // Initial PTY size (updated later via SshConnection::resize()).
     int cols = 80;
     int rows = 24;
