@@ -121,7 +121,7 @@ Legend: `→ Mn` = target milestone.
 - [ ] X.509 support  → M17
 - [ ] OpenSSH key format / agent forwarding / SSH agent  → M9/M17
 - [ ] Host key management  → M4
-- [ ] X11 forwarding  → M11
+- [x] X11 forwarding  → M11  ✅ *ssh -X-style MIT-MAGIC-COOKIE-1 spoofing: request X11 on the shell channel, accept forwarded x11 channels, swap the proxy cookie for the local Xauthority cookie, proxy to a local X server. Quick Connect "Forward X11" checkbox (persisted). 11 unit tests + end-to-end verified (real OpenSSH + Xvfb with cookie auth enforced, xdpyinfo exit 0)*
 - [ ] Data compression  → M2
 
 ### Emulation
