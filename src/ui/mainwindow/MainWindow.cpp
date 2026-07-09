@@ -15,6 +15,7 @@
 #include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QTreeWidget>
@@ -23,6 +24,7 @@
 #include <QWidget>
 
 #include "ScriptEngine.h"
+#include "home/HostsHomeWidget.h"
 #include "local/LocalShellConnection.h"
 #include "script/TerminalScriptContext.h"
 #include "session_dialogs/KeywordHighlightDialog.h"
@@ -53,15 +55,15 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1100, 720);
 
     createCentralArea();
-    createMenus();
     createToolBar();
     createSessionManagerDock();
+    createMenus();
     createStatusBar();
 
     loadAppearance();
     initStores();
+    addHomeTab();
     loadProfilesIntoTree();
-    addWelcomeTab();
 }
 
 MainWindow::~MainWindow() = default;
@@ -118,10 +120,21 @@ void MainWindow::createMenus()
 
     // --- View ---
     QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
-    placeholder(viewMenu, tr("Toolbar"));
-    placeholder(viewMenu, tr("Command Window"));
-    placeholder(viewMenu, tr("Button Bar"));
-    placeholder(viewMenu, tr("Status Bar"));
+    if (m_toolbar) {
+        QAction *tb = m_toolbar->toggleViewAction();
+        tb->setText(tr("Toolbar"));
+        viewMenu->addAction(tb);
+    }
+    if (m_sessionManagerDock) {
+        QAction *sm = m_sessionManagerDock->toggleViewAction();
+        sm->setText(tr("Session Manager"));
+        viewMenu->addAction(sm);
+    }
+    QAction *statusAct = viewMenu->addAction(tr("Status Bar"));
+    statusAct->setCheckable(true);
+    statusAct->setChecked(true);
+    connect(statusAct, &QAction::toggled, this,
+            [this](bool on) { statusBar()->setVisible(on); });
     viewMenu->addSeparator();
     m_hexViewAct = viewMenu->addAction(tr("Hex View"));
     m_hexViewAct->setCheckable(true);
@@ -199,21 +212,18 @@ void MainWindow::createMenus()
 
 void MainWindow::createToolBar()
 {
-    QToolBar *toolbar = addToolBar(tr("Main"));
-    toolbar->setObjectName("mainToolBar");
-    // Toolbar mirroring the SecureCRT layout. Quick Connect is wired up;
-    // the rest are placeholders until their milestones.
-    QAction *connectAct = toolbar->addAction(tr("Connect"));
-    connectAct->setEnabled(false);
-    QAction *quickConnectAct = toolbar->addAction(tr("Quick Connect"));
+    m_toolbar = addToolBar(tr("Main"));
+    m_toolbar->setObjectName("mainToolBar");
+    QAction *quickConnectAct = m_toolbar->addAction(tr("Quick Connect"));
     connect(quickConnectAct, &QAction::triggered, this,
             &MainWindow::openQuickConnect);
-    QAction *sftpAct = toolbar->addAction(tr("SFTP"));
+    QAction *sftpAct = m_toolbar->addAction(tr("SFTP"));
     connect(sftpAct, &QAction::triggered, this, &MainWindow::openQuickSftp);
-    for (const QString &name : {tr("Disconnect"), tr("Session Manager")}) {
-        QAction *act = toolbar->addAction(name);
-        act->setEnabled(false);
-    }
+    QAction *shellAct = m_toolbar->addAction(tr("Local Terminal"));
+    connect(shellAct, &QAction::triggered, this, &MainWindow::openLocalShell);
+    // Hidden by default — the Hosts home tab provides these actions. Toggle from
+    // View > Toolbar.
+    m_toolbar->hide();
 }
 
 void MainWindow::createSessionManagerDock()
@@ -236,6 +246,9 @@ void MainWindow::createSessionManagerDock()
     m_sessionManagerDock->setWidget(m_sessionTree);
 
     addDockWidget(Qt::LeftDockWidgetArea, m_sessionManagerDock);
+    // Hidden by default — the Hosts home tab is the primary host list. Toggle
+    // from View > Session Manager.
+    m_sessionManagerDock->hide();
 }
 
 void MainWindow::createCentralArea()
@@ -374,6 +387,8 @@ void MainWindow::loadProfilesIntoTree()
             m_sessionTree->addTopLevelItem(leaf);
     }
     m_sessionTree->expandAll();
+    if (m_home)
+        m_home->setProfiles(m_profiles);
 }
 
 void MainWindow::onSessionActivated(QTreeWidgetItem *item, int)
@@ -923,21 +938,98 @@ bool MainWindow::verifyHostKey(const QString &host, quint16 port,
     return false;
 }
 
-void MainWindow::addWelcomeTab()
+void MainWindow::addHomeTab()
 {
-    auto *page = new QWidget;
-    auto *layout = new QVBoxLayout(page);
-    auto *label = new QLabel(
-        tr("<h2>TermSync</h2>"
-           "<p>Open-source SSH terminal + SFTP/FTP client.</p>"
-           "<p>This is the <b>M1 scaffold</b>: the window shell is in place, "
-           "but connecting is not implemented yet.</p>"
-           "<p>Next milestone (M2) adds SSH2 connect and raw shell passthrough.</p>"),
-        page);
-    label->setAlignment(Qt::AlignCenter);
-    label->setWordWrap(true);
-    layout->addWidget(label);
-    m_sessionTabs->addTab(page, tr("Welcome"));
+    m_home = new HostsHomeWidget(this);
+    connect(m_home, &HostsHomeWidget::newHostRequested, this,
+            &MainWindow::openQuickConnect);
+    connect(m_home, &HostsHomeWidget::localShellRequested, this,
+            &MainWindow::openLocalShell);
+    connect(m_home, &HostsHomeWidget::quickConnectRequested, this,
+            &MainWindow::quickConnectFromText);
+    connect(m_home, &HostsHomeWidget::hostActivated, this,
+            [this](const QString &id) { connectById(id, /*sftp=*/false); });
+    connect(m_home, &HostsHomeWidget::hostSftpRequested, this,
+            [this](const QString &id) { connectById(id, /*sftp=*/true); });
+
+    const int index = m_sessionTabs->addTab(m_home, tr("Hosts"));
+    // The home tab is permanent — remove its close button.
+    if (auto *bar = m_sessionTabs->tabBar())
+        bar->setTabButton(index, QTabBar::RightSide, nullptr);
+}
+
+void MainWindow::connectById(const QString &id, bool sftp)
+{
+    for (const core::ConnectionProfile &p : m_profiles) {
+        if (p.id != id)
+            continue;
+        if (sftp || p.protocol == core::Protocol::SFTP_ONLY ||
+            p.protocol == core::Protocol::FTP ||
+            p.protocol == core::Protocol::FTPS)
+            connectProfileSftp(p);
+        else if (p.protocol == core::Protocol::TELNET)
+            startTelnetSession(p);
+        else if (p.protocol == core::Protocol::TN3270)
+            startTn3270Session(p);
+        else if (p.protocol == core::Protocol::TN5250)
+            startTn5250Session(p);
+        else if (p.protocol == core::Protocol::SERIAL)
+            startSerialSession(p);
+        else
+            connectProfile(p);
+        return;
+    }
+}
+
+void MainWindow::quickConnectFromText(const QString &text)
+{
+    // Accept "ssh user@host", "user@host[:port]" or a bare hostname; anything
+    // matching a saved host name connects that host instead.
+    for (const core::ConnectionProfile &p : m_profiles) {
+        if (p.name.compare(text, Qt::CaseInsensitive) == 0) {
+            connectById(p.id, false);
+            return;
+        }
+    }
+
+    QString s = text;
+    if (s.startsWith(QStringLiteral("ssh "), Qt::CaseInsensitive))
+        s = s.mid(4).trimmed();
+
+    core::ConnectionProfile p;
+    p.protocol = core::Protocol::SSH2;
+    p.authMethod = core::AuthMethod::Password;
+    QString hostPart = s;
+    if (const int at = s.indexOf('@'); at >= 0) {
+        p.username = s.left(at);
+        hostPart = s.mid(at + 1);
+    }
+    if (const int colon = hostPart.indexOf(':'); colon >= 0) {
+        p.host = hostPart.left(colon);
+        p.port = static_cast<quint16>(hostPart.mid(colon + 1).toUShort());
+    } else {
+        p.host = hostPart;
+    }
+    if (p.port == 0)
+        p.port = 22;
+    if (p.host.isEmpty()) {
+        statusBar()->showMessage(tr("Enter a host, e.g. user@example.com"), 4000);
+        return;
+    }
+    p.name = p.username.isEmpty() ? p.host : (p.username + '@' + p.host);
+    p.id = core::ProfileStore::newId();
+
+    QString password;
+    if (!p.username.isEmpty()) {
+        bool ok = false;
+        password = QInputDialog::getText(
+            this, tr("Password"),
+            tr("Password for %1@%2:").arg(p.username, p.host),
+            QLineEdit::Password, QString(), &ok);
+        if (!ok)
+            return;
+    }
+    startSession(p, password);
 }
 
 } // namespace termsync::ui

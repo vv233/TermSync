@@ -10,6 +10,7 @@
 
 class QAction;
 class QTabWidget;
+class QToolBar;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QDockWidget;
@@ -18,6 +19,7 @@ class QPoint;
 namespace termsync::ui {
 
 class TerminalWidget;
+class HostsHomeWidget;
 
 // The application main window.
 //
@@ -40,8 +42,12 @@ private:
     void createCentralArea();
     void createStatusBar();
 
-    // Adds a placeholder "welcome" tab so the empty shell is not blank.
-    void addWelcomeTab();
+    // Adds the (non-closable) Hosts home tab — the app's landing page.
+    void addHomeTab();
+    // Connects a saved profile by id, dispatching by protocol (terminal vs SFTP).
+    void connectById(const QString &id, bool sftp);
+    // Parses "user@host[:port]" from the home connect bar and connects.
+    void quickConnectFromText(const QString &text);
 
     // Opens the Quick Connect dialog and, on accept, starts an SSH2 session
     // in a new tab.
@@ -106,6 +112,8 @@ private:
     QTabWidget *m_sessionTabs = nullptr;
     QDockWidget *m_sessionManagerDock = nullptr;
     QTreeWidget *m_sessionTree = nullptr;
+    HostsHomeWidget *m_home = nullptr;
+    QToolBar *m_toolbar = nullptr;
     QAction *m_hexViewAct = nullptr;
 
     std::unique_ptr<core::ProfileStore> m_profileStore;

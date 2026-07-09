@@ -3,6 +3,8 @@
 add_library(termsync_ui STATIC
     mainwindow/MainWindow.h
     mainwindow/MainWindow.cpp
+    home/HostsHomeWidget.h
+    home/HostsHomeWidget.cpp
     session_dialogs/QuickConnectDialog.h
     session_dialogs/QuickConnectDialog.cpp
     session_dialogs/KeywordHighlightDialog.h

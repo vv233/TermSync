@@ -176,6 +176,26 @@ target_link_libraries(mainwindow_menu_smoke
         Qt6::Widgets
 )
 
+# Renders the whole MainWindow to a PNG (UI review).
+add_executable(mainwindow_render_smoke
+    mainwindow_render_smoke.cpp
+)
+target_link_libraries(mainwindow_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
+# Renders the Hosts home page with demo cards (UI review).
+add_executable(home_render_smoke
+    home_render_smoke.cpp
+)
+target_link_libraries(home_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
 # Render smoke (no server): local shell rendered in a TerminalWidget -> PNG.
 add_executable(local_shell_render_smoke
     local_shell_render_smoke.cpp
