@@ -20,6 +20,8 @@ class SessionLogger;
 
 namespace termsync::ui {
 
+class ConnectingOverlay;
+
 // The real terminal view (M3b): renders a ScreenBuffer with QPainter, feeds
 // remote bytes through the VtParser, translates keystrokes back to the shell,
 // supports scrollback, mouse selection + copy/paste, and reports resizes to
@@ -142,6 +144,10 @@ private:
     // Hex View (M20a): rolling buffer of raw received bytes + mode flag.
     bool m_hexView = false;
     QByteArray m_hexBuffer;
+
+    // "Connecting…" overlay shown over the terminal until the session connects.
+    ConnectingOverlay *m_connecting = nullptr;
+    void dismissConnecting();
 
     // Cell metrics (pixels).
     qreal m_cellW = 8.0;

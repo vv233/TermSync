@@ -196,6 +196,16 @@ target_link_libraries(home_render_smoke
         Qt6::Widgets
 )
 
+# Renders the terminal "connecting…" overlay (UI review).
+add_executable(connecting_render_smoke
+    connecting_render_smoke.cpp
+)
+target_link_libraries(connecting_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
 # Render smoke (no server): local shell rendered in a TerminalWidget -> PNG.
 add_executable(local_shell_render_smoke
     local_shell_render_smoke.cpp

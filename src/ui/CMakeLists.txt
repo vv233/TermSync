@@ -17,6 +17,8 @@ add_library(termsync_ui STATIC
     terminal_view/RawTerminalView.cpp
     terminal_view/TerminalWidget.h
     terminal_view/TerminalWidget.cpp
+    terminal_view/ConnectingOverlay.h
+    terminal_view/ConnectingOverlay.cpp
     transfer_view/SftpBrowserWidget.h
     transfer_view/SftpBrowserWidget.cpp
     transfer_view/DualPaneBrowser.h

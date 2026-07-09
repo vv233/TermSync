@@ -14,6 +14,7 @@
 #include <algorithm>
 
 #include "log/SessionLogger.h"
+#include "terminal_view/ConnectingOverlay.h"
 #include "text/HexView.h"
 
 namespace termsync::ui {
@@ -21,6 +22,63 @@ namespace termsync::ui {
 namespace {
 // Cap on the rolling hex-view buffer: keep roughly the last 128 KiB of stream.
 constexpr int kHexBufferCap = 128 * 1024;
+
+QFont normalizedTerminalFont(QFont font)
+{
+    QFontDatabase db;
+    const QStringList installedFamilies = db.families();
+    const QStringList preferredFamilies = {
+        QStringLiteral("Cascadia Mono"),
+        QStringLiteral("Cascadia Code"),
+        QStringLiteral("Consolas"),
+        QStringLiteral("Courier New"),
+        QStringLiteral("DejaVu Sans Mono"),
+        QStringLiteral("Menlo"),
+    };
+    auto installedFamily = [&installedFamilies](const QString &candidate) {
+        for (const QString &installed : installedFamilies) {
+            if (installed.compare(candidate, Qt::CaseInsensitive) == 0)
+                return installed;
+        }
+        return QString();
+    };
+
+    QString family;
+    for (const QString &candidate : font.families()) {
+        if (db.isFixedPitch(candidate)) {
+            family = candidate;
+            break;
+        }
+    }
+    if (family.isEmpty() && db.isFixedPitch(font.family()))
+        family = font.family();
+    if (family.isEmpty()) {
+        for (const QString &candidate : preferredFamilies) {
+            family = installedFamily(candidate);
+            if (!family.isEmpty())
+                break;
+        }
+    }
+    if (family.isEmpty())
+        family = QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
+
+    const int pointSize = font.pointSize() > 0 ? font.pointSize() : 11;
+    font = QFont(family);
+    font.setStyleHint(QFont::Monospace);
+    font.setFixedPitch(true);
+    font.setKerning(false);
+    font.setPointSize(pointSize);
+
+    return font;
+}
+
+qreal terminalCellWidth(const QFontMetricsF &fm)
+{
+    const qreal digitWidth = fm.horizontalAdvance(QLatin1Char('0'));
+    if (digitWidth > 0.0)
+        return std::ceil(digitWidth);
+    return std::max<qreal>(1.0, std::ceil(fm.averageCharWidth()));
+}
 } // namespace
 
 using terminal::Cell;
@@ -97,6 +155,17 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
                 update();
             });
 
+    // Termius-style connecting overlay until the shell opens.
+    m_connecting = new ConnectingOverlay(this);
+    m_connecting->setTitle(params.host);
+    m_connecting->setSubtitle(
+        tr("SSH %1:%2").arg(params.host).arg(params.port));
+    connect(m_connecting, &ConnectingOverlay::dismissed, this,
+            &TerminalWidget::dismissConnecting);
+    m_connecting->setGeometry(rect());
+    m_connecting->raise();
+    m_connecting->show();
+
     ssh->connectToHost(params);
 }
 
@@ -133,8 +202,9 @@ void TerminalWidget::initView()
                    QFontDatabase::systemFont(QFontDatabase::FixedFont).family()});
     f.setStyleHint(QFont::Monospace);
     f.setFixedPitch(true);
+    f.setKerning(false);
     f.setPointSize(11);
-    setFont(f);
+    setFont(normalizedTerminalFont(f));
     recomputeCellMetrics();
 
     m_blinkTimer = new QTimer(this);
@@ -169,11 +239,14 @@ void TerminalWidget::wireConnection()
             &TerminalWidget::onDataReceived);
     connect(m_connection, &core::AbstractTerminalConnection::connected, this, [this] {
         m_connected = true;
+        dismissConnecting();
         emit statusMessage(tr("Connected"));
     });
     connect(m_connection, &core::AbstractTerminalConnection::errorOccurred, this,
             [this](const QString &m) {
                 m_parser->parse(QByteArray("\r\n[error: ") + m.toUtf8() + "]\r\n");
+                if (m_connecting)
+                    m_connecting->setFailed(m);
                 emit statusMessage(tr("Error: %1").arg(m));
                 update();
             });
@@ -188,7 +261,7 @@ void TerminalWidget::wireConnection()
 void TerminalWidget::recomputeCellMetrics()
 {
     QFontMetricsF fm(font());
-    m_cellW = std::ceil(fm.horizontalAdvance(QLatin1Char('M')));
+    m_cellW = terminalCellWidth(fm);
     m_cellH = std::ceil(fm.height()) + 2.0; // a little line spacing
     m_baseline = fm.ascent() + 1.0;
 }
@@ -283,6 +356,8 @@ void TerminalWidget::setLogContext(const QString &host, const QString &session)
 {
     m_logHost = host;
     m_logSession = session;
+    if (m_connecting)
+        m_connecting->setTitle(session);
 }
 
 bool TerminalWidget::startLogging(const QString &pathTemplate, bool timestampLines)
@@ -359,7 +434,7 @@ void TerminalWidget::applyColorScheme(const terminal::ColorScheme &scheme)
 
 void TerminalWidget::setTerminalFont(const QFont &f)
 {
-    setFont(f);
+    setFont(normalizedTerminalFont(f));
     recomputeCellMetrics();
     // Re-flow the screen to the new cell grid.
     const int cols = visibleCols();
@@ -516,8 +591,19 @@ void TerminalWidget::resizeEvent(QResizeEvent *)
     m_screen->resize(cols, rows);
     if (m_connected)
         m_connection->resize(cols, rows);
+    if (m_connecting)
+        m_connecting->setGeometry(rect());
     scrollToBottom();
     update();
+}
+
+void TerminalWidget::dismissConnecting()
+{
+    if (m_connecting) {
+        m_connecting->deleteLater();
+        m_connecting = nullptr;
+    }
+    setFocus();
 }
 
 // ---------------------------------------------------------------------------
