@@ -1,8 +1,10 @@
 #include "transfer_view/ExplorerSftpBrowser.h"
 
+#include <QActionGroup>
 #include <QApplication>
 #include <QClipboard>
 #include <QDateTime>
+#include <QListView>
 #include <QDir>
 #include <QDrag>
 #include <QDragEnterEvent>
@@ -155,6 +157,9 @@ ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params
     shortcut(QKeySequence::Delete, &ExplorerSftpBrowser::deleteSelected);
     shortcut(QKeySequence::Refresh, &ExplorerSftpBrowser::refresh);
 
+    m_table->horizontalHeader()->setSortIndicatorShown(true);
+    m_table->horizontalHeader()->setSortIndicator(m_sortColumn, m_sortOrder);
+
     m_session->connectToHost();
     updateCommandState();
 }
@@ -261,6 +266,64 @@ QWidget *ExplorerSftpBrowser::buildCommandBar()
     row->addWidget(m_renameBtn);
     row->addWidget(m_deleteBtn);
     row->addStretch();
+
+    // --- Sort menu (排序) ---
+    auto *sortBtn = new QToolButton(bar);
+    sortBtn->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
+    sortBtn->setText(tr("Sort"));
+    sortBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    sortBtn->setPopupMode(QToolButton::InstantPopup);
+    sortBtn->setAutoRaise(true);
+    auto *sortMenu = new QMenu(sortBtn);
+    auto *colGroup = new QActionGroup(this);
+    const char *cols[] = {"Name", "Date modified", "Type", "Size"};
+    for (int i = 0; i < 4; ++i) {
+        QAction *a = sortMenu->addAction(tr(cols[i]));
+        a->setCheckable(true);
+        a->setChecked(i == m_sortColumn);
+        colGroup->addAction(a);
+        connect(a, &QAction::triggered, this,
+                [this, i] { setSort(i, m_sortOrder); });
+    }
+    sortMenu->addSeparator();
+    auto *ordGroup = new QActionGroup(this);
+    QAction *ascAct = sortMenu->addAction(tr("Ascending"));
+    QAction *descAct = sortMenu->addAction(tr("Descending"));
+    for (QAction *a : {ascAct, descAct}) {
+        a->setCheckable(true);
+        ordGroup->addAction(a);
+    }
+    ascAct->setChecked(true);
+    connect(ascAct, &QAction::triggered, this,
+            [this] { setSort(m_sortColumn, Qt::AscendingOrder); });
+    connect(descAct, &QAction::triggered, this,
+            [this] { setSort(m_sortColumn, Qt::DescendingOrder); });
+    sortBtn->setMenu(sortMenu);
+    row->addWidget(sortBtn);
+
+    // --- View menu (查看) ---
+    auto *viewBtn = new QToolButton(bar);
+    viewBtn->setIcon(style()->standardIcon(QStyle::SP_FileDialogListView));
+    viewBtn->setText(tr("View"));
+    viewBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    viewBtn->setPopupMode(QToolButton::InstantPopup);
+    viewBtn->setAutoRaise(true);
+    auto *viewMenu = new QMenu(viewBtn);
+    auto *viewGroup = new QActionGroup(this);
+    struct { const char *label; int mode; } modes[] = {
+        {"Extra large icons", ExtraLargeIcons}, {"Large icons", LargeIcons},
+        {"Medium icons", MediumIcons}, {"Small icons", SmallIcons},
+        {"List", ListMode}, {"Details", Details}};
+    for (const auto &m : modes) {
+        QAction *a = viewMenu->addAction(tr(m.label));
+        a->setCheckable(true);
+        a->setChecked(m.mode == m_viewMode);
+        viewGroup->addAction(a);
+        const int mode = m.mode;
+        connect(a, &QAction::triggered, this, [this, mode] { setViewMode(mode); });
+    }
+    viewBtn->setMenu(viewMenu);
+    row->addWidget(viewBtn);
     return bar;
 }
 
@@ -325,7 +388,44 @@ QWidget *ExplorerSftpBrowser::buildFileView()
             &ExplorerSftpBrowser::onSelectionChanged);
     connect(m_table, &QWidget::customContextMenuRequested, this,
             &ExplorerSftpBrowser::showContextMenu);
-    return m_table;
+    // Header click drives the shared sort state (kept in sync across views).
+    m_table->setSortingEnabled(false);
+    m_table->horizontalHeader()->setSectionsClickable(true);
+    connect(m_table->horizontalHeader(), &QHeaderView::sectionClicked, this,
+            [this](int col) {
+                const Qt::SortOrder order =
+                    (col == m_sortColumn && m_sortOrder == Qt::AscendingOrder)
+                        ? Qt::DescendingOrder
+                        : Qt::AscendingOrder;
+                setSort(col, order);
+            });
+
+    // Icon / list view (large/medium/small icons + list mode).
+    m_iconView = new QListWidget(this);
+    m_iconView->setFrameShape(QFrame::NoFrame);
+    m_iconView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_iconView->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_iconView->setResizeMode(QListView::Adjust);
+    m_iconView->setMovement(QListView::Static);
+    m_iconView->setUniformItemSizes(true);
+    m_iconView->setWordWrap(true);
+    m_iconView->setStyleSheet(QStringLiteral(
+        "QListWidget { background:#1a1b26; border:0; }"
+        "QListWidget::item { color:#e6e9f2; border-radius:6px; padding:4px; }"
+        "QListWidget::item:hover { background:#23252f; }"
+        "QListWidget::item:selected { background:#2dd4bf; color:#101218; }"));
+    connect(m_iconView, &QListWidget::itemDoubleClicked, this,
+            &ExplorerSftpBrowser::onIconActivated);
+    connect(m_iconView, &QListWidget::itemSelectionChanged, this,
+            &ExplorerSftpBrowser::onSelectionChanged);
+    connect(m_iconView, &QWidget::customContextMenuRequested, this,
+            &ExplorerSftpBrowser::showContextMenu);
+
+    m_viewStack = new QStackedWidget(this);
+    m_viewStack->addWidget(m_table);    // index 0
+    m_viewStack->addWidget(m_iconView); // index 1
+    m_viewStack->setCurrentWidget(m_table);
+    return m_viewStack;
 }
 
 QWidget *ExplorerSftpBrowser::buildStatusStrip()
@@ -380,13 +480,32 @@ void ExplorerSftpBrowser::populate()
     for (const SftpEntry &e : m_entries)
         if (filter.isEmpty() || e.name.contains(filter, Qt::CaseInsensitive))
             rows.append(e);
-    std::sort(rows.begin(), rows.end(), [](const SftpEntry &a, const SftpEntry &b) {
+
+    // Folders always group first (like Explorer), then by the chosen column.
+    std::sort(rows.begin(), rows.end(), [this](const SftpEntry &a, const SftpEntry &b) {
         if (a.isDirectory != b.isDirectory)
             return a.isDirectory;
-        return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
+        int cmp = 0;
+        switch (m_sortColumn) {
+        case 1:
+            cmp = a.modifiedAt < b.modifiedAt ? -1 : (a.modifiedAt > b.modifiedAt ? 1 : 0);
+            break;
+        case 2:
+            cmp = typeLabel(a).compare(typeLabel(b), Qt::CaseInsensitive);
+            break;
+        case 3:
+            cmp = a.size < b.size ? -1 : (a.size > b.size ? 1 : 0);
+            break;
+        default:
+            cmp = a.name.compare(b.name, Qt::CaseInsensitive);
+            break;
+        }
+        if (cmp == 0)
+            cmp = a.name.compare(b.name, Qt::CaseInsensitive);
+        return m_sortOrder == Qt::AscendingOrder ? cmp < 0 : cmp > 0;
     });
 
-    m_table->setSortingEnabled(false);
+    // Details table.
     m_table->setRowCount(rows.size());
     for (int r = 0; r < rows.size(); ++r) {
         const SftpEntry &e = rows[r];
@@ -399,15 +518,60 @@ void ExplorerSftpBrowser::populate()
         m_table->setItem(r, 2, new QTableWidgetItem(typeLabel(e)));
         auto *size = new QTableWidgetItem(e.isDirectory ? QString() : humanSize(e.size));
         size->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        size->setData(Qt::UserRole, static_cast<qulonglong>(e.size));
         m_table->setItem(r, 3, size);
     }
-    m_table->setSortingEnabled(true);
+
+    // Icon / list view.
+    m_iconView->clear();
+    for (const SftpEntry &e : rows) {
+        auto *it = new QListWidgetItem(iconFor(e), e.name, m_iconView);
+        it->setData(Qt::UserRole, e.name);
+        it->setData(Qt::UserRole + 1, e.isDirectory);
+        it->setTextAlignment(m_viewMode == ListMode ? Qt::AlignLeft
+                                                     : Qt::AlignHCenter | Qt::AlignTop);
+    }
 
     const int dirs = std::count_if(rows.begin(), rows.end(),
                                    [](const SftpEntry &e) { return e.isDirectory; });
     m_countLabel->setText(tr("%n item(s)", "", int(rows.size())) +
                           (dirs ? tr("  ·  %n folder(s)", "", dirs) : QString()));
+}
+
+void ExplorerSftpBrowser::setSort(int column, Qt::SortOrder order)
+{
+    m_sortColumn = column;
+    m_sortOrder = order;
+    if (m_table)
+        m_table->horizontalHeader()->setSortIndicator(column, order);
+    populate();
+}
+
+void ExplorerSftpBrowser::setViewMode(int mode)
+{
+    m_viewMode = mode;
+    if (mode == Details) {
+        m_viewStack->setCurrentWidget(m_table);
+    } else if (mode == ListMode) {
+        m_iconView->setViewMode(QListView::ListMode);
+        m_iconView->setIconSize(QSize(20, 20));
+        m_iconView->setGridSize(QSize());
+        m_iconView->setFlow(QListView::TopToBottom);
+        m_iconView->setWrapping(true);
+        m_viewStack->setCurrentWidget(m_iconView);
+    } else {
+        const int sz = mode == ExtraLargeIcons ? 128
+                       : mode == LargeIcons     ? 96
+                       : mode == MediumIcons    ? 64
+                                                : 48;
+        m_iconView->setViewMode(QListView::IconMode);
+        m_iconView->setIconSize(QSize(sz, sz));
+        m_iconView->setGridSize(QSize(sz + 44, sz + 40));
+        m_iconView->setFlow(QListView::LeftToRight);
+        m_iconView->setWrapping(true);
+        m_viewStack->setCurrentWidget(m_iconView);
+    }
+    populate(); // re-align item text for the new mode
+    onSelectionChanged();
 }
 
 QIcon ExplorerSftpBrowser::iconFor(const SftpEntry &e) const
@@ -555,13 +719,22 @@ void ExplorerSftpBrowser::updateCommandState()
 // ---------------------------------------------------------------------------
 QVector<SftpEntry> ExplorerSftpBrowser::selectedEntries() const
 {
-    QVector<SftpEntry> out;
-    const auto rows = m_table->selectionModel()->selectedRows();
-    for (const QModelIndex &idx : rows) {
-        const QString name = m_table->item(idx.row(), 0)->data(Qt::UserRole).toString();
-        for (const SftpEntry &e : m_entries)
-            if (e.name == name) { out.append(e); break; }
+    QStringList names;
+    if (m_viewMode == Details) {
+        const auto rows = m_table->selectionModel()->selectedRows();
+        for (const QModelIndex &idx : rows)
+            names << m_table->item(idx.row(), 0)->data(Qt::UserRole).toString();
+    } else {
+        for (QListWidgetItem *it : m_iconView->selectedItems())
+            names << it->data(Qt::UserRole).toString();
     }
+    QVector<SftpEntry> out;
+    for (const QString &name : names)
+        for (const SftpEntry &e : m_entries)
+            if (e.name == name) {
+                out.append(e);
+                break;
+            }
     return out;
 }
 
@@ -588,6 +761,18 @@ void ExplorerSftpBrowser::onItemActivated(int row, int)
     auto *nameItem = m_table->item(row, 0);
     const QString name = nameItem->data(Qt::UserRole).toString();
     const bool isDir = nameItem->data(Qt::UserRole + 1).toBool();
+    if (isDir)
+        navigateTo(remoteJoin(m_path, name));
+    else
+        downloadSelected();
+}
+
+void ExplorerSftpBrowser::onIconActivated(QListWidgetItem *item)
+{
+    if (!item)
+        return;
+    const QString name = item->data(Qt::UserRole).toString();
+    const bool isDir = item->data(Qt::UserRole + 1).toBool();
     if (isDir)
         navigateTo(remoteJoin(m_path, name));
     else

@@ -63,11 +63,15 @@ int main(int argc, char *argv[])
             entry("notes.txt", 342, false, "2026-07-09 23:45"),
             entry("Makefile", 1200, false, "2026-06-30 08:00"),
         };
-        QTimer::singleShot(400, [w, entries] {
+        const int viewMode = argc > 6 ? QString::fromLocal8Bit(argv[6]).toInt() : -1;
+        QTimer::singleShot(400, [w, entries, viewMode] {
             QMetaObject::invokeMethod(
                 w, "onDirectoryListed", Qt::DirectConnection,
                 Q_ARG(QString, QStringLiteral("/home/demo/project")),
                 Q_ARG(QVector<SftpEntry>, entries));
+            if (viewMode >= 0)
+                QMetaObject::invokeMethod(w, "setViewMode", Qt::DirectConnection,
+                                          Q_ARG(int, viewMode));
         });
     }
 

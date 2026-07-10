@@ -56,6 +56,7 @@ private slots:
                             const transfer::sync::Listing &listing, bool ok);
 
     void onItemActivated(int row, int column);
+    void onIconActivated(QListWidgetItem *item);
     void onSelectionChanged();
     void showContextMenu(const QPoint &pos);
 
@@ -63,6 +64,8 @@ private slots:
     void goForward();
     void goUp();
     void refresh();
+    void setViewMode(int mode);
+    void setSort(int column, Qt::SortOrder order);
     void newFolder();
     void uploadFiles();
     void downloadSelected();
@@ -130,9 +133,26 @@ private:
     QToolButton *m_renameBtn = nullptr;
     QToolButton *m_deleteBtn = nullptr;
 
-    // Views.
+    // View modes (match the Windows 11 Explorer "View" menu).
+    enum ViewMode {
+        ExtraLargeIcons,
+        LargeIcons,
+        MediumIcons,
+        SmallIcons,
+        ListMode,
+        Details,
+    };
+
+    // Views: a details table and an icon/list view, switched via a stack.
+    QStackedWidget *m_viewStack = nullptr;
     QTableWidget *m_table = nullptr;
+    QListWidget *m_iconView = nullptr;
     QListWidget *m_navList = nullptr;
+    int m_viewMode = Details;
+
+    // Sort state (column 0=Name,1=Date,2=Type,3=Size), folders always first.
+    int m_sortColumn = 0;
+    Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
 
     // Status strip.
     QLabel *m_countLabel = nullptr;
