@@ -505,30 +505,34 @@ void ExplorerSftpBrowser::populate()
         return m_sortOrder == Qt::AscendingOrder ? cmp < 0 : cmp > 0;
     });
 
-    // Details table.
-    m_table->setRowCount(rows.size());
-    for (int r = 0; r < rows.size(); ++r) {
-        const SftpEntry &e = rows[r];
-        auto *name = new QTableWidgetItem(iconFor(e), e.name);
-        name->setData(Qt::UserRole, e.name);
-        name->setData(Qt::UserRole + 1, e.isDirectory);
-        m_table->setItem(r, 0, name);
-        m_table->setItem(r, 1, new QTableWidgetItem(
-                                   e.modifiedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm"))));
-        m_table->setItem(r, 2, new QTableWidgetItem(typeLabel(e)));
-        auto *size = new QTableWidgetItem(e.isDirectory ? QString() : humanSize(e.size));
-        size->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        m_table->setItem(r, 3, size);
-    }
-
-    // Icon / list view.
-    m_iconView->clear();
-    for (const SftpEntry &e : rows) {
-        auto *it = new QListWidgetItem(iconFor(e), e.name, m_iconView);
-        it->setData(Qt::UserRole, e.name);
-        it->setData(Qt::UserRole + 1, e.isDirectory);
-        it->setTextAlignment(m_viewMode == ListMode ? Qt::AlignLeft
-                                                     : Qt::AlignHCenter | Qt::AlignTop);
+    // Fill only the visible view (the other is refilled when switched to).
+    if (m_viewMode == Details) {
+        m_iconView->clear();
+        m_table->setRowCount(rows.size());
+        for (int r = 0; r < rows.size(); ++r) {
+            const SftpEntry &e = rows[r];
+            auto *name = new QTableWidgetItem(iconFor(e), e.name);
+            name->setData(Qt::UserRole, e.name);
+            name->setData(Qt::UserRole + 1, e.isDirectory);
+            m_table->setItem(r, 0, name);
+            m_table->setItem(r, 1, new QTableWidgetItem(
+                                       e.modifiedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm"))));
+            m_table->setItem(r, 2, new QTableWidgetItem(typeLabel(e)));
+            auto *size = new QTableWidgetItem(e.isDirectory ? QString() : humanSize(e.size));
+            size->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            m_table->setItem(r, 3, size);
+        }
+    } else {
+        m_table->setRowCount(0);
+        m_iconView->clear();
+        for (const SftpEntry &e : rows) {
+            auto *it = new QListWidgetItem(iconFor(e), e.name, m_iconView);
+            it->setData(Qt::UserRole, e.name);
+            it->setData(Qt::UserRole + 1, e.isDirectory);
+            it->setTextAlignment(m_viewMode == ListMode
+                                     ? Qt::AlignLeft
+                                     : Qt::AlignHCenter | Qt::AlignTop);
+        }
     }
 
     const int dirs = std::count_if(rows.begin(), rows.end(),
@@ -576,12 +580,26 @@ void ExplorerSftpBrowser::setViewMode(int mode)
 
 QIcon ExplorerSftpBrowser::iconFor(const SftpEntry &e) const
 {
-    if (e.isDirectory)
-        return iconProvider().icon(QAbstractFileIconProvider::Folder);
-    // Type-specific icon by extension via a (non-existent) sample name.
-    const QIcon byType = iconProvider().icon(QFileInfo(e.name));
-    return byType.isNull() ? iconProvider().icon(QAbstractFileIconProvider::File)
-                           : byType;
+    // QFileIconProvider::icon() is a synchronous Windows shell lookup
+    // (SHGetFileInfo) — expensive. Cache by file-type so a directory of N files
+    // costs a handful of lookups, not N, keeping the UI thread responsive.
+    if (e.isDirectory) {
+        if (m_folderIcon.isNull())
+            m_folderIcon = iconProvider().icon(QAbstractFileIconProvider::Folder);
+        return m_folderIcon;
+    }
+    const int dot = e.name.lastIndexOf('.');
+    const QString suffix = dot > 0 ? e.name.mid(dot + 1).toLower() : QString();
+    const auto cached = m_iconCache.constFind(suffix);
+    if (cached != m_iconCache.constEnd())
+        return cached.value();
+    QIcon ic = iconProvider().icon(
+        QFileInfo(suffix.isEmpty() ? QStringLiteral("file")
+                                   : QStringLiteral("file.") + suffix));
+    if (ic.isNull())
+        ic = iconProvider().icon(QAbstractFileIconProvider::File);
+    m_iconCache.insert(suffix, ic);
+    return ic;
 }
 
 // ---------------------------------------------------------------------------

@@ -161,6 +161,10 @@ private:
 
     QHash<int, transfer::TransferItem> m_activeXfers;
 
+    // Cached shell icons (by file-type suffix) — QFileIconProvider is slow.
+    mutable QHash<QString, QIcon> m_iconCache;
+    mutable QIcon m_folderIcon;
+
     // Pending "download to temp" batch (for copy-out / drag-out to Explorer).
     // m_tempPaths holds the top-level temp paths (the selected files/folders);
     // m_tempBatch tracks the in-flight file downloads and m_tempPendingDirs the

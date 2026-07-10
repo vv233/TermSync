@@ -25,6 +25,7 @@ using socket_t = SOCKET;
 static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
 #  include <arpa/inet.h>
+#  include <fcntl.h>
 #  include <netdb.h>
 #  include <netinet/in.h>
 #  include <netinet/tcp.h>
@@ -1741,6 +1742,65 @@ bool SftpFileEngine::asciiDownload(const QString &remotePath, const QString &loc
     return true;
 }
 
+namespace {
+// Connect to one address with a bounded timeout (non-blocking connect + select),
+// so an unreachable address fails fast instead of blocking on the OS-default
+// ~20s TCP timeout. Returns a connected (blocking) socket or kInvalidSocket.
+socket_t connectWithTimeout(const struct addrinfo *ai, int timeoutMs)
+{
+    socket_t sock = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (sock == kInvalidSocket)
+        return kInvalidSocket;
+#ifdef _WIN32
+    u_long nb = 1;
+    ioctlsocket(sock, FIONBIO, &nb);
+#else
+    const int flags = ::fcntl(sock, F_GETFL, 0);
+    ::fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+#endif
+    bool connected =
+        ::connect(sock, ai->ai_addr, static_cast<int>(ai->ai_addrlen)) == 0;
+    if (!connected) {
+#ifdef _WIN32
+        const bool inProgress = WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+        const bool inProgress = errno == EINPROGRESS;
+#endif
+        if (inProgress) {
+            fd_set wset;
+            FD_ZERO(&wset);
+            FD_SET(sock, &wset);
+            timeval tv{};
+            tv.tv_sec = timeoutMs / 1000;
+            tv.tv_usec = (timeoutMs % 1000) * 1000;
+#ifdef _WIN32
+            const int n = ::select(0, nullptr, &wset, nullptr, &tv);
+#else
+            const int n = ::select(sock + 1, nullptr, &wset, nullptr, &tv);
+#endif
+            if (n > 0 && FD_ISSET(sock, &wset)) {
+                int soerr = 0;
+                socklen_t len = sizeof(soerr);
+                ::getsockopt(sock, SOL_SOCKET, SO_ERROR,
+                             reinterpret_cast<char *>(&soerr), &len);
+                connected = soerr == 0;
+            }
+        }
+    }
+#ifdef _WIN32
+    nb = 0;
+    ioctlsocket(sock, FIONBIO, &nb);
+#else
+    ::fcntl(sock, F_SETFL, flags);
+#endif
+    if (!connected) {
+        closeNativeSocket(sock);
+        return kInvalidSocket;
+    }
+    return sock;
+}
+} // namespace
+
 bool SftpFileEngine::openSocket(const QString &hostName, quint16 portNumber)
 {
     struct addrinfo hints{};
@@ -1755,15 +1815,26 @@ bool SftpFileEngine::openSocket(const QString &hostName, quint16 portNumber)
         return false;
     }
 
+    // Try IPv4 addresses first: on a dual-stack host whose IPv6 address is not
+    // routable, this avoids a long connect stall before falling back to IPv4.
+    std::vector<const struct addrinfo *> ordered;
+    for (const struct addrinfo *ai = res; ai; ai = ai->ai_next)
+        if (ai->ai_family == AF_INET)
+            ordered.push_back(ai);
+    for (const struct addrinfo *ai = res; ai; ai = ai->ai_next)
+        if (ai->ai_family != AF_INET)
+            ordered.push_back(ai);
+
+    bool ok = false;
+    const int timeoutMs =
+        qEnvironmentVariableIntValue("TERMSYNC_SSH_CONNECT_TIMEOUT_MS", &ok);
+    const int perAddr = ok && timeoutMs > 0 ? timeoutMs : 10000;
+
     socket_t sock = kInvalidSocket;
-    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
-        sock = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (sock == kInvalidSocket)
-            continue;
-        if (::connect(sock, ai->ai_addr, static_cast<int>(ai->ai_addrlen)) == 0)
+    for (const struct addrinfo *ai : ordered) {
+        sock = connectWithTimeout(ai, perAddr);
+        if (sock != kInvalidSocket)
             break;
-        closeNativeSocket(sock);
-        sock = kInvalidSocket;
     }
     freeaddrinfo(res);
 
