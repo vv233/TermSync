@@ -100,6 +100,7 @@ QFont makeFont(const QString &family, int pt)
     QFont f(family);
     f.setStyleHint(QFont::Monospace);
     f.setFixedPitch(true);
+    f.setKerning(false);
     f.setPointSize(pt);
     return f;
 }
