@@ -136,6 +136,16 @@ target_link_libraries(explorer_render_smoke
         Qt6::Widgets
 )
 
+# End-to-end: drag-and-drop upload in the Explorer SFTP browser (needs a server).
+add_executable(drag_upload_smoke
+    drag_upload_smoke.cpp
+)
+target_link_libraries(drag_upload_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
 # Headless (no server): verifies the TerminalWidget session-logging tee.
 add_executable(session_log_smoke
     session_log_smoke.cpp

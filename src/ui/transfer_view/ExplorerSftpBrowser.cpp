@@ -1,7 +1,12 @@
 #include "transfer_view/ExplorerSftpBrowser.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QDateTime>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QFileDialog>
 #include <QFileIconProvider>
 #include <QFileInfo>
@@ -14,14 +19,18 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QRandomGenerator>
+#include <QShortcut>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QTableWidget>
 #include <QToolButton>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
 
@@ -109,6 +118,21 @@ ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params
         "#crumbBtn:hover { background:#2a2c3a; }"
         "#crumbSep { color:#5a6078; padding:0 1px; }"
         "#explorerBar { background:#16171f; border-bottom:1px solid #2a2c3a; }"));
+
+    // Accept local files dropped onto the browser (upload). The table is
+    // DragOnly (starts remote-out drags; does not accept drops), so drops fall
+    // through to this widget.
+    setAcceptDrops(true);
+
+    auto shortcut = [this](QKeySequence::StandardKey k, void (ExplorerSftpBrowser::*fn)()) {
+        auto *s = new QShortcut(k, this);
+        s->setContext(Qt::WidgetWithChildrenShortcut);
+        connect(s, &QShortcut::activated, this, fn);
+    };
+    shortcut(QKeySequence::Copy, &ExplorerSftpBrowser::copySelectionToClipboard);
+    shortcut(QKeySequence::Paste, &ExplorerSftpBrowser::pasteFromClipboard);
+    shortcut(QKeySequence::Delete, &ExplorerSftpBrowser::deleteSelected);
+    shortcut(QKeySequence::Refresh, &ExplorerSftpBrowser::refresh);
 
     m_session->connectToHost();
     updateCommandState();
@@ -625,6 +649,135 @@ void ExplorerSftpBrowser::deleteSelected()
         m_session->removeEntry(remoteJoin(m_path, e.name), e.isDirectory);
 }
 
+// ---------------------------------------------------------------------------
+// Drag-and-drop + clipboard (upload in / download out)
+// ---------------------------------------------------------------------------
+namespace {
+bool hasLocalFiles(const QMimeData *m)
+{
+    if (!m || !m->hasUrls())
+        return false;
+    for (const QUrl &u : m->urls())
+        if (u.isLocalFile())
+            return true;
+    return false;
+}
+} // namespace
+
+void ExplorerSftpBrowser::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (hasLocalFiles(event->mimeData()))
+        event->acceptProposedAction();
+}
+
+void ExplorerSftpBrowser::dragMoveEvent(QDragMoveEvent *event)
+{
+    if (hasLocalFiles(event->mimeData()))
+        event->acceptProposedAction();
+}
+
+void ExplorerSftpBrowser::dropEvent(QDropEvent *event)
+{
+    if (!hasLocalFiles(event->mimeData()))
+        return;
+    event->acceptProposedAction();
+    uploadUrls(event->mimeData()->urls());
+}
+
+void ExplorerSftpBrowser::uploadUrls(const QList<QUrl> &urls)
+{
+    int n = 0;
+    for (const QUrl &u : urls) {
+        if (!u.isLocalFile())
+            continue;
+        uploadLocalEntry(u.toLocalFile(), m_path);
+        ++n;
+    }
+    if (n)
+        emit statusMessage(tr("Uploading %n item(s) to %1", "", n).arg(m_path));
+}
+
+void ExplorerSftpBrowser::uploadLocalEntry(const QString &localPath,
+                                           const QString &remoteDir)
+{
+    const QFileInfo fi(localPath);
+    if (fi.isDir()) {
+        // Create the remote folder, then recurse (SftpSession serialises the
+        // mkdir before the child transfers, so ordering is preserved).
+        const QString remoteSub = remoteJoin(remoteDir, fi.fileName());
+        m_session->makeDirectory(remoteSub);
+        const QFileInfoList children =
+            QDir(localPath).entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries);
+        for (const QFileInfo &child : children)
+            uploadLocalEntry(child.absoluteFilePath(), remoteSub);
+    } else if (fi.isFile()) {
+        TransferItem item;
+        item.direction = TransferItem::Upload;
+        item.localPath = localPath;
+        item.displayName = fi.fileName();
+        item.remotePath = remoteJoin(remoteDir, fi.fileName());
+        item.size = static_cast<quint64>(fi.size());
+        m_session->enqueue(item);
+    }
+}
+
+void ExplorerSftpBrowser::pasteFromClipboard()
+{
+    const QMimeData *m = QApplication::clipboard()->mimeData();
+    if (hasLocalFiles(m))
+        uploadUrls(m->urls());
+    else
+        emit statusMessage(tr("Clipboard has no files to upload"));
+}
+
+void ExplorerSftpBrowser::downloadSelectedToTemp(
+    std::function<void(const QStringList &)> onReady)
+{
+    QVector<SftpEntry> files;
+    for (const SftpEntry &e : selectedEntries())
+        if (!e.isDirectory)
+            files.append(e);
+    if (files.isEmpty()) {
+        emit statusMessage(tr("Select file(s) first"));
+        return;
+    }
+    // A unique temp folder so repeated copies don't clobber each other.
+    const QString base =
+        QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+            .filePath(QStringLiteral("termsync-clip-%1")
+                          .arg(QRandomGenerator::global()->generate(), 8, 16,
+                               QLatin1Char('0')));
+    QDir().mkpath(base);
+
+    m_tempBatch.clear();
+    m_tempPaths.clear();
+    m_tempOnReady = std::move(onReady);
+    for (const SftpEntry &e : files) {
+        TransferItem item;
+        item.direction = TransferItem::Download;
+        item.displayName = e.name;
+        item.remotePath = remoteJoin(m_path, e.name);
+        item.localPath = QDir(base).filePath(e.name);
+        item.size = e.size;
+        m_tempBatch.insert(m_session->enqueue(item));
+    }
+    emit statusMessage(tr("Preparing %n file(s)…", "", int(files.size())));
+}
+
+void ExplorerSftpBrowser::copySelectionToClipboard()
+{
+    downloadSelectedToTemp([this](const QStringList &paths) {
+        QList<QUrl> urls;
+        for (const QString &p : paths)
+            urls.append(QUrl::fromLocalFile(p));
+        auto *mime = new QMimeData;
+        mime->setUrls(urls);
+        QApplication::clipboard()->setMimeData(mime);
+        emit statusMessage(
+            tr("Copied %n file(s) — paste into Explorer", "", int(paths.size())));
+    });
+}
+
 void ExplorerSftpBrowser::showContextMenu(const QPoint &pos)
 {
     const auto entries = selectedEntries();
@@ -635,11 +788,15 @@ void ExplorerSftpBrowser::showContextMenu(const QPoint &pos)
                 navigateTo(remoteJoin(m_path, entries[0].name));
             });
         menu.addAction(tr("Download"), this, &ExplorerSftpBrowser::downloadSelected);
+        menu.addAction(tr("Copy"), this,
+                       &ExplorerSftpBrowser::copySelectionToClipboard);
         if (entries.size() == 1)
             menu.addAction(tr("Rename"), this, &ExplorerSftpBrowser::renameSelected);
         menu.addAction(tr("Delete"), this, &ExplorerSftpBrowser::deleteSelected);
         menu.addSeparator();
     }
+    if (hasLocalFiles(QApplication::clipboard()->mimeData()))
+        menu.addAction(tr("Paste"), this, &ExplorerSftpBrowser::pasteFromClipboard);
     menu.addAction(tr("Upload files…"), this, &ExplorerSftpBrowser::uploadFiles);
     menu.addAction(tr("New folder…"), this, &ExplorerSftpBrowser::newFolder);
     menu.addAction(tr("Refresh"), this, &ExplorerSftpBrowser::refresh);
@@ -681,7 +838,32 @@ void ExplorerSftpBrowser::onTransferProgress(int id, quint64 done, quint64 total
 
 void ExplorerSftpBrowser::onTransferFinished(int id, bool ok, const QString &message)
 {
+    QString localPath;
+    if (m_activeXfers.contains(id))
+        localPath = m_activeXfers.value(id).localPath;
     m_activeXfers.remove(id);
+
+    // "Download to temp" batch for copy-out / drag-out to Windows Explorer.
+    if (m_tempBatch.remove(id)) {
+        if (ok && !localPath.isEmpty())
+            m_tempPaths.append(localPath);
+        if (m_tempBatch.isEmpty() && m_tempOnReady) {
+            auto cb = std::move(m_tempOnReady);
+            m_tempOnReady = nullptr;
+            const QStringList paths = m_tempPaths;
+            m_tempPaths.clear();
+            if (!paths.isEmpty())
+                cb(paths);
+            else
+                emit statusMessage(tr("Copy failed: %1").arg(message));
+        }
+        if (m_activeXfers.isEmpty()) {
+            m_xferBar->setVisible(false);
+            m_xferLabel->clear();
+        }
+        return; // no remote refresh for a clipboard/temp download
+    }
+
     emit statusMessage(ok ? tr("Transfer complete")
                           : tr("Transfer failed: %1").arg(message));
     if (m_activeXfers.isEmpty()) {

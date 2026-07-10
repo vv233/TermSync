@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QIcon>
+#include <QSet>
 #include <QStringList>
 #include <QWidget>
 
@@ -65,6 +66,14 @@ private slots:
     void downloadSelected();
     void renameSelected();
     void deleteSelected();
+    void copySelectionToClipboard();
+    void pasteFromClipboard();
+
+protected:
+    // Drag local files in (upload). Remote-out drag is started by the table.
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 
 private:
     QWidget *buildNavBar();
@@ -82,6 +91,15 @@ private:
     QString parentOf(const QString &dir) const;
     QVector<transfer::SftpEntry> selectedEntries() const;
     QIcon iconFor(const transfer::SftpEntry &e) const;
+
+    // Upload every local URL (files uploaded; folders created + recursed) into
+    // the current remote directory.
+    void uploadUrls(const QList<QUrl> &urls);
+    void uploadLocalEntry(const QString &localPath, const QString &remoteDir);
+    // Downloads the selected remote files into a fresh temp folder; `onReady` is
+    // called with the local paths once every file has arrived (for clipboard /
+    // drag-out to Windows Explorer, which needs real files).
+    void downloadSelectedToTemp(std::function<void(const QStringList &)> onReady);
 
     transfer::SftpSession *m_session = nullptr;
     QString m_path = QStringLiteral(".");
@@ -116,6 +134,11 @@ private:
     QProgressBar *m_xferBar = nullptr;
 
     QHash<int, transfer::TransferItem> m_activeXfers;
+
+    // Pending "download to temp" batch (for copy-out / drag-out to Explorer).
+    QSet<int> m_tempBatch;
+    QStringList m_tempPaths;
+    std::function<void(const QStringList &)> m_tempOnReady;
 };
 
 } // namespace termsync::ui
