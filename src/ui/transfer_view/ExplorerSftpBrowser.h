@@ -52,6 +52,8 @@ private slots:
     void onTransferQueued(const transfer::TransferItem &item);
     void onTransferProgress(int id, quint64 done, quint64 total);
     void onTransferFinished(int id, bool ok, const QString &message);
+    void onSyncListingReady(const QString &root,
+                            const transfer::sync::Listing &listing, bool ok);
 
     void onItemActivated(int row, int column);
     void onSelectionChanged();
@@ -103,6 +105,7 @@ private:
     // called with the local paths once every file has arrived (for clipboard /
     // drag-out to Windows Explorer, which needs real files).
     void downloadSelectedToTemp(std::function<void(const QStringList &)> onReady);
+    void maybeFinishTemp();
 
     transfer::SftpSession *m_session = nullptr;
     QString m_path = QStringLiteral(".");
@@ -139,8 +142,13 @@ private:
     QHash<int, transfer::TransferItem> m_activeXfers;
 
     // Pending "download to temp" batch (for copy-out / drag-out to Explorer).
+    // m_tempPaths holds the top-level temp paths (the selected files/folders);
+    // m_tempBatch tracks the in-flight file downloads and m_tempPendingDirs the
+    // recursive folder listings still awaited.
     QSet<int> m_tempBatch;
     QStringList m_tempPaths;
+    QString m_tempBaseDir;
+    int m_tempPendingDirs = 0;
     std::function<void(const QStringList &)> m_tempOnReady;
 };
 

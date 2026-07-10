@@ -113,6 +113,8 @@ ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params
             &ExplorerSftpBrowser::onTransferProgress);
     connect(m_session, &transfer::SftpSession::transferFinished, this,
             &ExplorerSftpBrowser::onTransferFinished);
+    connect(m_session, &transfer::SftpSession::syncListingReady, this,
+            &ExplorerSftpBrowser::onSyncListingReady);
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
@@ -758,12 +760,9 @@ void ExplorerSftpBrowser::pasteFromClipboard()
 void ExplorerSftpBrowser::downloadSelectedToTemp(
     std::function<void(const QStringList &)> onReady)
 {
-    QVector<SftpEntry> files;
-    for (const SftpEntry &e : selectedEntries())
-        if (!e.isDirectory)
-            files.append(e);
-    if (files.isEmpty()) {
-        emit statusMessage(tr("Select file(s) first"));
+    const QVector<SftpEntry> entries = selectedEntries();
+    if (entries.isEmpty()) {
+        emit statusMessage(tr("Select item(s) first"));
         return;
     }
     // A unique temp folder so repeated copies don't clobber each other.
@@ -776,17 +775,71 @@ void ExplorerSftpBrowser::downloadSelectedToTemp(
 
     m_tempBatch.clear();
     m_tempPaths.clear();
+    m_tempBaseDir = base;
+    m_tempPendingDirs = 0;
     m_tempOnReady = std::move(onReady);
-    for (const SftpEntry &e : files) {
-        TransferItem item;
-        item.direction = TransferItem::Download;
-        item.displayName = e.name;
-        item.remotePath = remoteJoin(m_path, e.name);
-        item.localPath = QDir(base).filePath(e.name);
-        item.size = e.size;
-        m_tempBatch.insert(m_session->enqueue(item));
+
+    for (const SftpEntry &e : entries) {
+        const QString top = QDir(base).filePath(e.name);
+        m_tempPaths.append(top); // the dragged/copied top-level item
+        if (e.isDirectory) {
+            ++m_tempPendingDirs;
+            QDir().mkpath(top);
+            // Recursively enumerate the remote folder; downloads are enqueued in
+            // onSyncListingReady.
+            m_session->requestSyncListing(remoteJoin(m_path, e.name));
+        } else {
+            TransferItem item;
+            item.direction = TransferItem::Download;
+            item.displayName = e.name;
+            item.remotePath = remoteJoin(m_path, e.name);
+            item.localPath = top;
+            item.size = e.size;
+            m_tempBatch.insert(m_session->enqueue(item));
+        }
     }
-    emit statusMessage(tr("Preparing %n file(s)…", "", int(files.size())));
+    emit statusMessage(tr("Preparing %n item(s)…", "", int(entries.size())));
+    maybeFinishTemp();
+}
+
+void ExplorerSftpBrowser::onSyncListingReady(const QString &root,
+                                             const transfer::sync::Listing &listing,
+                                             bool ok)
+{
+    if (m_tempPendingDirs <= 0)
+        return; // not part of a pending copy/drag batch
+    const QString dirName = root.section('/', -1, -1, QString::SectionSkipEmpty);
+    const QString localDir = QDir(m_tempBaseDir).filePath(dirName);
+    if (ok) {
+        for (auto it = listing.constBegin(); it != listing.constEnd(); ++it) {
+            const QString localPath = QDir(localDir).filePath(it.key());
+            if (it.value().isDir) {
+                QDir().mkpath(localPath);
+            } else {
+                QDir().mkpath(QFileInfo(localPath).absolutePath());
+                TransferItem item;
+                item.direction = TransferItem::Download;
+                item.displayName = it.key();
+                item.remotePath = remoteJoin(root, it.key());
+                item.localPath = localPath;
+                item.size = it.value().size;
+                m_tempBatch.insert(m_session->enqueue(item));
+            }
+        }
+    }
+    --m_tempPendingDirs;
+    maybeFinishTemp();
+}
+
+void ExplorerSftpBrowser::maybeFinishTemp()
+{
+    if (!m_tempOnReady || m_tempPendingDirs != 0 || !m_tempBatch.isEmpty())
+        return;
+    auto cb = std::move(m_tempOnReady);
+    m_tempOnReady = nullptr;
+    const QStringList paths = m_tempPaths;
+    m_tempPaths.clear();
+    cb(paths);
 }
 
 void ExplorerSftpBrowser::copySelectionToClipboard()
@@ -805,19 +858,17 @@ void ExplorerSftpBrowser::copySelectionToClipboard()
 
 void ExplorerSftpBrowser::startDragOut()
 {
-    QVector<SftpEntry> files;
-    for (const SftpEntry &e : selectedEntries())
-        if (!e.isDirectory)
-            files.append(e);
-    if (files.isEmpty())
-        return; // dragging folders out is not supported yet
+    const QVector<SftpEntry> sel = selectedEntries();
+    if (sel.isEmpty())
+        return;
 
-    // Download the selection to a temp folder, blocking (with a cancelable
-    // progress dialog) until it is ready — Windows Explorer needs real files.
+    // Download the selection (files and folders) to a temp folder, blocking
+    // (with a cancelable progress dialog) until it is ready — Windows Explorer
+    // needs real files.
     QEventLoop loop;
     QStringList ready;
     bool cancelled = false;
-    QProgressDialog dlg(tr("Preparing %n file(s)…", "", int(files.size())),
+    QProgressDialog dlg(tr("Preparing %n item(s)…", "", int(sel.size())),
                         tr("Cancel"), 0, 0, this);
     dlg.setWindowModality(Qt::WindowModal);
     dlg.setMinimumDuration(0);
@@ -905,25 +956,11 @@ void ExplorerSftpBrowser::onTransferProgress(int id, quint64 done, quint64 total
 
 void ExplorerSftpBrowser::onTransferFinished(int id, bool ok, const QString &message)
 {
-    QString localPath;
-    if (m_activeXfers.contains(id))
-        localPath = m_activeXfers.value(id).localPath;
     m_activeXfers.remove(id);
 
     // "Download to temp" batch for copy-out / drag-out to Windows Explorer.
     if (m_tempBatch.remove(id)) {
-        if (ok && !localPath.isEmpty())
-            m_tempPaths.append(localPath);
-        if (m_tempBatch.isEmpty() && m_tempOnReady) {
-            auto cb = std::move(m_tempOnReady);
-            m_tempOnReady = nullptr;
-            const QStringList paths = m_tempPaths;
-            m_tempPaths.clear();
-            if (!paths.isEmpty())
-                cb(paths);
-            else
-                emit statusMessage(tr("Copy failed: %1").arg(message));
-        }
+        maybeFinishTemp();
         if (m_activeXfers.isEmpty()) {
             m_xferBar->setVisible(false);
             m_xferLabel->clear();
