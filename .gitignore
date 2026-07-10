@@ -4,6 +4,9 @@
 /cmake-build-*/
 *.user
 
+# Packaged release bundle (produced by scripts/make-release.ps1)
+/release/
+
 # vcpkg
 /vcpkg_installed/
 /vcpkg/
