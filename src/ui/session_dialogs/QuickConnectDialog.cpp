@@ -144,6 +144,23 @@ QuickConnectDialog::QuickConnectDialog(QWidget *parent)
     m_host->setFocus();
 }
 
+void QuickConnectDialog::loadProfile(const core::ConnectionProfile &p)
+{
+    setWindowTitle(tr("Edit Host"));
+    m_editId = p.id;
+    if (int i = m_protocol->findData(static_cast<int>(p.protocol)); i >= 0)
+        m_protocol->setCurrentIndex(i);
+    m_host->setText(p.host);
+    m_port->setValue(p.port);
+    m_username->setText(p.username);
+    if (int i = m_authMethod->findData(static_cast<int>(p.authMethod)); i >= 0)
+        m_authMethod->setCurrentIndex(i);
+    m_keyPath->setText(p.privateKeyPath);
+    m_x11Forwarding->setChecked(p.x11Forwarding);
+    m_saveSession->setChecked(true);
+    m_savePassword->setChecked(p.savePassword);
+}
+
 QString QuickConnectDialog::password() const
 {
     return m_password->text();
@@ -162,7 +179,7 @@ bool QuickConnectDialog::savePassword() const
 core::ConnectionProfile QuickConnectDialog::toProfile() const
 {
     core::ConnectionProfile p;
-    p.id = core::ProfileStore::newId();
+    p.id = m_editId.isEmpty() ? core::ProfileStore::newId() : m_editId;
     p.host = m_host->text().trimmed();
     p.port = static_cast<quint16>(m_port->value());
     p.username = m_username->text().trimmed();

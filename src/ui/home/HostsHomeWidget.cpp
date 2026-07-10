@@ -1,8 +1,10 @@
 #include "home/HostsHomeWidget.h"
 
+#include <QContextMenuEvent>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
@@ -120,6 +122,26 @@ void HostCard::mouseDoubleClickEvent(QMouseEvent *event)
     QFrame::mouseDoubleClickEvent(event);
 }
 
+void HostCard::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu menu(this);
+    QAction *connectAct = menu.addAction(tr("Connect"));
+    QAction *sftpAct = menu.addAction(tr("Open SFTP"));
+    menu.addSeparator();
+    QAction *editAct = menu.addAction(tr("Edit…"));
+    QAction *deleteAct = menu.addAction(tr("Delete"));
+
+    QAction *chosen = menu.exec(event->globalPos());
+    if (chosen == connectAct)
+        emit activated(m_id);
+    else if (chosen == sftpAct)
+        emit sftpRequested(m_id);
+    else if (chosen == editAct)
+        emit editRequested(m_id);
+    else if (chosen == deleteAct)
+        emit deleteRequested(m_id);
+}
+
 // ---------------------------------------------------------------------------
 // HostsHomeWidget
 // ---------------------------------------------------------------------------
@@ -229,6 +251,10 @@ void HostsHomeWidget::rebuildCards()
                 &HostsHomeWidget::hostActivated);
         connect(card, &HostCard::sftpRequested, this,
                 &HostsHomeWidget::hostSftpRequested);
+        connect(card, &HostCard::editRequested, this,
+                &HostsHomeWidget::hostEditRequested);
+        connect(card, &HostCard::deleteRequested, this,
+                &HostsHomeWidget::hostDeleteRequested);
         m_cardsLayout->addWidget(card);
     }
     m_cardsLayout->addStretch();

@@ -46,6 +46,9 @@ private:
     void addHomeTab();
     // Connects a saved profile by id, dispatching by protocol (terminal vs SFTP).
     void connectById(const QString &id, bool sftp);
+    // Edit / delete a saved host from the Hosts home page.
+    void editHost(const QString &id);
+    void deleteHost(const QString &id);
     // Parses "user@host[:port]" from the home connect bar and connects.
     void quickConnectFromText(const QString &text);
 

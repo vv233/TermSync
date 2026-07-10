@@ -23,6 +23,10 @@ class QuickConnectDialog : public QDialog
 public:
     explicit QuickConnectDialog(QWidget *parent = nullptr);
 
+    // Prefills the fields from an existing profile for editing. toProfile() then
+    // keeps that profile's id (an update rather than a new host).
+    void loadProfile(const core::ConnectionProfile &profile);
+
     core::SshConnectionParams params() const;
     QString password() const;
 
@@ -44,6 +48,8 @@ private:
     QCheckBox *m_x11Forwarding = nullptr;
     QCheckBox *m_saveSession = nullptr;
     QCheckBox *m_savePassword = nullptr;
+
+    QString m_editId; // non-empty when editing an existing profile
 };
 
 } // namespace termsync::ui

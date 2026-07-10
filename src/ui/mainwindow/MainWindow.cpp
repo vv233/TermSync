@@ -951,6 +951,10 @@ void MainWindow::addHomeTab()
             [this](const QString &id) { connectById(id, /*sftp=*/false); });
     connect(m_home, &HostsHomeWidget::hostSftpRequested, this,
             [this](const QString &id) { connectById(id, /*sftp=*/true); });
+    connect(m_home, &HostsHomeWidget::hostEditRequested, this,
+            &MainWindow::editHost);
+    connect(m_home, &HostsHomeWidget::hostDeleteRequested, this,
+            &MainWindow::deleteHost);
 
     const int index = m_sessionTabs->addTab(m_home, tr("Hosts"));
     // The home tab is permanent — remove its close button.
@@ -979,6 +983,49 @@ void MainWindow::connectById(const QString &id, bool sftp)
             connectProfile(p);
         return;
     }
+}
+
+void MainWindow::editHost(const QString &id)
+{
+    if (!m_profileStore)
+        return;
+    for (const core::ConnectionProfile &existing : m_profiles) {
+        if (existing.id != id)
+            continue;
+        QuickConnectDialog dialog(this);
+        dialog.loadProfile(existing);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        core::ConnectionProfile updated = dialog.toProfile(); // keeps the id
+        if (updated.host.isEmpty())
+            return;
+        if (m_profileStore->upsert(updated)) {
+            if (updated.savePassword && m_credentialStore)
+                m_credentialStore->store(updated.id, dialog.password());
+            loadProfilesIntoTree();
+            statusBar()->showMessage(tr("Updated '%1'").arg(updated.name), 4000);
+        }
+        return;
+    }
+}
+
+void MainWindow::deleteHost(const QString &id)
+{
+    if (!m_profileStore)
+        return;
+    QString name = id;
+    for (const core::ConnectionProfile &p : m_profiles)
+        if (p.id == id)
+            name = p.name;
+    if (QMessageBox::question(
+            this, tr("Delete Host"),
+            tr("Delete the saved host “%1”?").arg(name)) != QMessageBox::Yes)
+        return;
+    m_profileStore->remove(id);
+    if (m_credentialStore)
+        m_credentialStore->remove(id);
+    loadProfilesIntoTree();
+    statusBar()->showMessage(tr("Deleted '%1'").arg(name), 4000);
 }
 
 void MainWindow::quickConnectFromText(const QString &text)

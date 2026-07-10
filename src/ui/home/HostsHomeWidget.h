@@ -24,10 +24,13 @@ public:
 signals:
     void activated(const QString &profileId);
     void sftpRequested(const QString &profileId);
+    void editRequested(const QString &profileId);
+    void deleteRequested(const QString &profileId);
 
 protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     QString m_id;
@@ -52,6 +55,8 @@ signals:
     void quickConnectRequested(const QString &text);
     void hostActivated(const QString &profileId);
     void hostSftpRequested(const QString &profileId);
+    void hostEditRequested(const QString &profileId);
+    void hostDeleteRequested(const QString &profileId);
 
 private:
     void rebuildCards();
