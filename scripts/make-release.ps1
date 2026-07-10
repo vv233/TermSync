@@ -49,6 +49,10 @@ if ($LASTEXITCODE) { throw "build failed" }
 
 # --- Deploy into release\ --------------------------------------------------
 New-Item -ItemType Directory -Force $rel | Out-Null
+# Stop any running instance of the bundled exe so the copy isn't blocked.
+Get-Process termsync, termsync-cli -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($rel) } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
 Copy-Item "$build\bin\termsync.exe", "$build\bin\termsync-cli.exe" $rel -Force
 
 # Qt runtime + plugins + the VC++ redistributable runtime, next to the exe.
