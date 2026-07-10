@@ -17,6 +17,7 @@
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QToolButton>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -70,8 +71,11 @@ MainWindow::~MainWindow() = default;
 
 void MainWindow::createMenus()
 {
-    // SecureCRT-style top-level menu structure. Actions are placeholders
-    // (disabled) in M1; milestones wire them up. See docs/ui-parity.md.
+    // Termius-style: the classic top-level menus live under a single "≡"
+    // hamburger button in the tab-strip corner (built at the end); appMenu is
+    // their common parent instead of the (hidden) menu bar.
+    QMenu *appMenu = new QMenu(this);
+
     auto placeholder = [this](QMenu *menu, const QString &text) {
         QAction *act = menu->addAction(text);
         act->setEnabled(false);
@@ -79,7 +83,7 @@ void MainWindow::createMenus()
     };
 
     // --- File ---
-    QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
+    QMenu *fileMenu = appMenu->addMenu(tr("&File"));
     placeholder(fileMenu, tr("Connect..."));
     QAction *quickConnectAct = fileMenu->addAction(tr("Quick Connect..."));
     quickConnectAct->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Q));
@@ -105,7 +109,7 @@ void MainWindow::createMenus()
     connect(exitAct, &QAction::triggered, this, &QWidget::close);
 
     // --- Edit ---
-    QMenu *editMenu = menuBar()->addMenu(tr("&Edit"));
+    QMenu *editMenu = appMenu->addMenu(tr("&Edit"));
     placeholder(editMenu, tr("Copy"));
     placeholder(editMenu, tr("Paste"));
     placeholder(editMenu, tr("Select All"));
@@ -119,7 +123,7 @@ void MainWindow::createMenus()
             &MainWindow::editKeywordHighlighting);
 
     // --- View ---
-    QMenu *viewMenu = menuBar()->addMenu(tr("&View"));
+    QMenu *viewMenu = appMenu->addMenu(tr("&View"));
     if (m_toolbar) {
         QAction *tb = m_toolbar->toggleViewAction();
         tb->setText(tr("Toolbar"));
@@ -144,7 +148,7 @@ void MainWindow::createMenus()
     placeholder(viewMenu, tr("Full Screen"));
 
     // --- Options ---
-    QMenu *optionsMenu = menuBar()->addMenu(tr("&Options"));
+    QMenu *optionsMenu = appMenu->addMenu(tr("&Options"));
     placeholder(optionsMenu, tr("Session Options..."));
     placeholder(optionsMenu, tr("Global Options..."));
     placeholder(optionsMenu, tr("Edit Default Session..."));
@@ -154,7 +158,7 @@ void MainWindow::createMenus()
             &MainWindow::openTerminalAppearance);
 
     // --- Transfer ---
-    QMenu *transferMenu = menuBar()->addMenu(tr("&Transfer"));
+    QMenu *transferMenu = appMenu->addMenu(tr("&Transfer"));
     placeholder(transferMenu, tr("Send ASCII..."));
     placeholder(transferMenu, tr("Receive ASCII..."));
     placeholder(transferMenu, tr("Send Binary..."));
@@ -162,14 +166,14 @@ void MainWindow::createMenus()
     placeholder(transferMenu, tr("Start Zmodem Upload..."));
 
     // --- Script ---
-    QMenu *scriptMenu = menuBar()->addMenu(tr("&Script"));
+    QMenu *scriptMenu = appMenu->addMenu(tr("&Script"));
     QAction *runScriptAct = scriptMenu->addAction(tr("Run..."));
     connect(runScriptAct, &QAction::triggered, this, &MainWindow::runScript);
     placeholder(scriptMenu, tr("Start Recording Script"));
     placeholder(scriptMenu, tr("Stop Recording Script"));
 
     // --- Tools ---
-    QMenu *toolsMenu = menuBar()->addMenu(tr("T&ools"));
+    QMenu *toolsMenu = appMenu->addMenu(tr("T&ools"));
     placeholder(toolsMenu, tr("Create Public Key..."));
     placeholder(toolsMenu, tr("Public-Key Assistant..."));
     placeholder(toolsMenu, tr("Manage Agent Keys..."));
@@ -186,13 +190,13 @@ void MainWindow::createMenus()
     connect(tftpAct, &QAction::triggered, this, &MainWindow::openTftpServer);
 
     // --- Window ---
-    QMenu *windowMenu = menuBar()->addMenu(tr("&Window"));
+    QMenu *windowMenu = appMenu->addMenu(tr("&Window"));
     placeholder(windowMenu, tr("Cascade"));
     placeholder(windowMenu, tr("Tile Horizontally"));
     placeholder(windowMenu, tr("Tile Vertically"));
 
     // --- Help ---
-    QMenu *helpMenu = menuBar()->addMenu(tr("&Help"));
+    QMenu *helpMenu = appMenu->addMenu(tr("&Help"));
     placeholder(helpMenu, tr("Help Topics"));
     QAction *aboutAct = helpMenu->addAction(tr("About TermSync"));
     connect(aboutAct, &QAction::triggered, this, [this] {
@@ -208,6 +212,22 @@ void MainWindow::createMenus()
                 .arg(QCoreApplication::applicationVersion(),
                      QStringLiteral(QT_VERSION_STR)));
     });
+
+    // Collapse everything into a single "≡" hamburger in the tab-strip corner,
+    // and hide the classic menu bar (Termius has no menu bar).
+    auto *hamburger = new QToolButton(this);
+    hamburger->setText(QStringLiteral("≡"));
+    hamburger->setToolTip(tr("Menu"));
+    hamburger->setPopupMode(QToolButton::InstantPopup);
+    hamburger->setAutoRaise(true);
+    hamburger->setMenu(appMenu);
+    hamburger->setStyleSheet(QStringLiteral(
+        "QToolButton { font-size:16pt; color:#c8d0e8; padding:2px 12px;"
+        " border:0; background:transparent; }"
+        "QToolButton:hover { color:#2dd4bf; }"
+        "QToolButton::menu-indicator { image:none; }"));
+    m_sessionTabs->setCornerWidget(hamburger, Qt::TopLeftCorner);
+    menuBar()->hide();
 }
 
 void MainWindow::createToolBar()

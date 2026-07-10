@@ -8,16 +8,15 @@
 #include <QAction>
 #include <QApplication>
 #include <QMenu>
-#include <QMenuBar>
 #include <QTimer>
+#include <QToolButton>
 #include <cstdio>
 
 #include "mainwindow/MainWindow.h"
 
 namespace {
-QMenu *menuByTitle(QMenuBar *bar, const QString &plain)
+QMenu *menuByTitle(const QList<QAction *> &acts, const QString &plain)
 {
-    const auto acts = bar->actions();
     for (QAction *a : acts) {
         QString t = a->text();
         t.remove(QLatin1Char('&'));
@@ -59,13 +58,20 @@ int main(int argc, char *argv[])
     termsync::ui::MainWindow w;
     w.resize(1100, 720);
     w.show();
-    QMenuBar *bar = w.menuBar();
 
-    QMenu *file = menuByTitle(bar, QStringLiteral("File"));
-    QMenu *edit = menuByTitle(bar, QStringLiteral("Edit"));
-    QMenu *view = menuByTitle(bar, QStringLiteral("View"));
-    QMenu *options = menuByTitle(bar, QStringLiteral("Options"));
-    QMenu *tools = menuByTitle(bar, QStringLiteral("Tools"));
+    // Menus now live under the "≡" hamburger button, not a menu bar.
+    QList<QAction *> topActions;
+    for (QToolButton *b : w.findChildren<QToolButton *>())
+        if (b->menu() && b->text() == QStringLiteral("≡")) {
+            topActions = b->menu()->actions();
+            break;
+        }
+
+    QMenu *file = menuByTitle(topActions, QStringLiteral("File"));
+    QMenu *edit = menuByTitle(topActions, QStringLiteral("Edit"));
+    QMenu *view = menuByTitle(topActions, QStringLiteral("View"));
+    QMenu *options = menuByTitle(topActions, QStringLiteral("Options"));
+    QMenu *tools = menuByTitle(topActions, QStringLiteral("Tools"));
 
     check(hasAction(file, QStringLiteral("Local Shell")), "File > Local Shell");
     check(hasAction(file, QStringLiteral("Log Session...")), "File > Log Session...");
