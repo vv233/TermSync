@@ -4,9 +4,11 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <QDir>
+#include <QDrag>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileIconProvider>
 #include <QFileInfo>
@@ -21,6 +23,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QRandomGenerator>
 #include <QShortcut>
@@ -67,6 +70,22 @@ QFileIconProvider &iconProvider()
     static QFileIconProvider p;
     return p;
 }
+
+// A details table that hands drag-out (to Windows Explorer) back to the browser,
+// which downloads the files to temp before starting the OS drag.
+class DragTable : public QTableWidget
+{
+public:
+    using QTableWidget::QTableWidget;
+    std::function<void()> onStartDrag;
+
+protected:
+    void startDrag(Qt::DropActions) override
+    {
+        if (onStartDrag)
+            onStartDrag();
+    }
+};
 
 } // namespace
 
@@ -273,7 +292,13 @@ QWidget *ExplorerSftpBrowser::buildNavPane()
 // ---------------------------------------------------------------------------
 QWidget *ExplorerSftpBrowser::buildFileView()
 {
-    m_table = new QTableWidget(0, 4, this);
+    auto *table = new DragTable(0, 4, this);
+    table->onStartDrag = [this] { startDragOut(); };
+    // DragOnly: the table starts drags (out to Explorer) but doesn't accept
+    // drops, so dropped local files fall through to the browser (upload).
+    table->setDragEnabled(true);
+    table->setDragDropMode(QAbstractItemView::DragOnly);
+    m_table = table;
     m_table->setHorizontalHeaderLabels(
         {tr("Name"), tr("Date modified"), tr("Type"), tr("Size")});
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
@@ -776,6 +801,48 @@ void ExplorerSftpBrowser::copySelectionToClipboard()
         emit statusMessage(
             tr("Copied %n file(s) — paste into Explorer", "", int(paths.size())));
     });
+}
+
+void ExplorerSftpBrowser::startDragOut()
+{
+    QVector<SftpEntry> files;
+    for (const SftpEntry &e : selectedEntries())
+        if (!e.isDirectory)
+            files.append(e);
+    if (files.isEmpty())
+        return; // dragging folders out is not supported yet
+
+    // Download the selection to a temp folder, blocking (with a cancelable
+    // progress dialog) until it is ready — Windows Explorer needs real files.
+    QEventLoop loop;
+    QStringList ready;
+    bool cancelled = false;
+    QProgressDialog dlg(tr("Preparing %n file(s)…", "", int(files.size())),
+                        tr("Cancel"), 0, 0, this);
+    dlg.setWindowModality(Qt::WindowModal);
+    dlg.setMinimumDuration(0);
+    connect(&dlg, &QProgressDialog::canceled, &loop, [&] {
+        cancelled = true;
+        loop.quit();
+    });
+    downloadSelectedToTemp([&](const QStringList &paths) {
+        ready = paths;
+        loop.quit();
+    });
+    dlg.show();
+    loop.exec();
+    dlg.close();
+    if (cancelled || ready.isEmpty())
+        return;
+
+    QList<QUrl> urls;
+    for (const QString &p : ready)
+        urls.append(QUrl::fromLocalFile(p));
+    auto *mime = new QMimeData;
+    mime->setUrls(urls);
+    auto *drag = new QDrag(this);
+    drag->setMimeData(mime);
+    drag->exec(Qt::CopyAction);
 }
 
 void ExplorerSftpBrowser::showContextMenu(const QPoint &pos)

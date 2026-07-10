@@ -68,6 +68,9 @@ private slots:
     void deleteSelected();
     void copySelectionToClipboard();
     void pasteFromClipboard();
+    // Drag the selected remote files out to Windows Explorer: download them to a
+    // temp folder (with a progress dialog), then start an OS drag of real files.
+    void startDragOut();
 
 protected:
     // Drag local files in (upload). Remote-out drag is started by the table.
