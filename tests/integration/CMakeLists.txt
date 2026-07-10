@@ -126,6 +126,16 @@ target_link_libraries(dualpane_render_smoke
         Qt6::Widgets
 )
 
+# Renders the Windows-11-Explorer-style SFTP browser against a live server.
+add_executable(explorer_render_smoke
+    explorer_render_smoke.cpp
+)
+target_link_libraries(explorer_render_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
 # Headless (no server): verifies the TerminalWidget session-logging tee.
 add_executable(session_log_smoke
     session_log_smoke.cpp

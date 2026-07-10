@@ -1,6 +1,7 @@
 #include "mainwindow/MainWindow.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
@@ -40,6 +41,7 @@
 #include "tn3270/Tn5250Connection.h"
 #include "terminal_view/TerminalWidget.h"
 #include "transfer_view/DualPaneBrowser.h"
+#include "transfer_view/ExplorerSftpBrowser.h"
 #include "transfer_view/SftpBrowserWidget.h"
 
 namespace {
@@ -156,6 +158,33 @@ void MainWindow::createMenus()
     QAction *appearanceAct = optionsMenu->addAction(tr("Terminal Appearance..."));
     connect(appearanceAct, &QAction::triggered, this,
             &MainWindow::openTerminalAppearance);
+
+    // SFTP browser style: Windows-11 Explorer (default) vs classic dual-pane.
+    QMenu *sftpStyleMenu = optionsMenu->addMenu(tr("SFTP Browser Style"));
+    auto *styleGroup = new QActionGroup(this);
+    QAction *explorerAct = sftpStyleMenu->addAction(tr("Explorer (Windows 11)"));
+    QAction *dualAct = sftpStyleMenu->addAction(tr("Traditional (dual-pane)"));
+    for (QAction *a : {explorerAct, dualAct}) {
+        a->setCheckable(true);
+        styleGroup->addAction(a);
+    }
+    {
+        QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+        const bool traditional =
+            settings.value(QStringLiteral("sftp/style")).toString() ==
+            QStringLiteral("traditional");
+        (traditional ? dualAct : explorerAct)->setChecked(true);
+    }
+    auto setStyle = [this](const QString &style) {
+        QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+        settings.setValue(QStringLiteral("sftp/style"), style);
+        statusBar()->showMessage(
+            tr("SFTP browser style applies to new SFTP sessions"), 4000);
+    };
+    connect(explorerAct, &QAction::triggered, this,
+            [setStyle] { setStyle(QStringLiteral("explorer")); });
+    connect(dualAct, &QAction::triggered, this,
+            [setStyle] { setStyle(QStringLiteral("traditional")); });
 
     // --- Transfer ---
     QMenu *transferMenu = appMenu->addMenu(tr("&Transfer"));
@@ -577,13 +606,32 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
     const QString expectedFp =
         m_profileStore ? m_profileStore->knownFingerprint(host, port) : QString();
 
-    auto *view = new DualPaneBrowser(params, expectedFp, profile.protocol, this);
+    auto onFingerprint = [this, host, port](const QString &fp) {
+        verifyHostKey(host, port, fp);
+    };
+    auto onStatus = [this](const QString &msg) {
+        statusBar()->showMessage(msg, 5000);
+    };
 
-    // Trust-on-first-use: persist a newly-seen fingerprint; warn on mismatch.
-    connect(view, &DualPaneBrowser::hostKeyFingerprintReceived, this,
-            [this, host, port](const QString &fp) { verifyHostKey(host, port, fp); });
-    connect(view, &DualPaneBrowser::statusMessage, this,
-            [this](const QString &msg) { statusBar()->showMessage(msg, 5000); });
+    // Explorer (Windows 11 File Explorer) style by default; "traditional" gives
+    // the classic dual-pane browser. Chosen via Options > SFTP Browser Style.
+    QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    const bool traditional =
+        settings.value(QStringLiteral("sftp/style")).toString() ==
+        QStringLiteral("traditional");
+
+    QWidget *view = nullptr;
+    if (traditional) {
+        auto *v = new DualPaneBrowser(params, expectedFp, profile.protocol, this);
+        connect(v, &DualPaneBrowser::hostKeyFingerprintReceived, this, onFingerprint);
+        connect(v, &DualPaneBrowser::statusMessage, this, onStatus);
+        view = v;
+    } else {
+        auto *v = new ExplorerSftpBrowser(params, expectedFp, profile.protocol, this);
+        connect(v, &ExplorerSftpBrowser::hostKeyFingerprintReceived, this, onFingerprint);
+        connect(v, &ExplorerSftpBrowser::statusMessage, this, onStatus);
+        view = v;
+    }
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, tr("%1 Files").arg(baseTitle));

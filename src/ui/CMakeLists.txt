@@ -23,6 +23,8 @@ add_library(termsync_ui STATIC
     transfer_view/SftpBrowserWidget.cpp
     transfer_view/DualPaneBrowser.h
     transfer_view/DualPaneBrowser.cpp
+    transfer_view/ExplorerSftpBrowser.h
+    transfer_view/ExplorerSftpBrowser.cpp
     transfer_view/SynchronizeDialog.h
     transfer_view/SynchronizeDialog.cpp
     script/TerminalScriptContext.h
