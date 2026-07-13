@@ -1,57 +1,62 @@
 # TermSync
 
-An open-source, cross-platform **SSH terminal + SFTP/FTP file-transfer client** — combining
-the core capabilities of a SecureCRT-style terminal emulator and a SecureFX-style file-transfer
-tool into a single application, built with **C++ / Qt 6**.
+TermSync is an open-source, cross-platform remote operations client built with
+C++17 and Qt 6. It combines tabbed terminal sessions, connection profiles,
+file transfer, synchronization, automation, and a headless CLI in one project.
 
-> ✅ **MVP complete (M1–M10).** Working SSH2 terminal, session manager with OS-keychain
-> credential storage, a dual-pane SFTP/FTP browser with a transfer queue, a directory
-> sync engine, public-key/agent auth, and a self-contained `windeployqt` + CPack package.
-> 38 unit tests pass; terminal and file browser are verified against live SSH/SFTP/FTP
-> servers. See [`docs/ui-parity.md`](docs/ui-parity.md) for exact status and the M11–M20
-> roadmap (port forwarding, SCP/ZMODEM, Telnet/Serial, scripting, TN3270, …).
+> **Pre-release:** `0.1.0-pre.1` is intended for validation. Configuration and
+> behavior may still change before the first stable release.
 
-## Why one app?
+## Current capabilities
 
-A single **connection profile** backs both a terminal session and a file-transfer session,
-reusing one authenticated SSH transport (one auth prompt, one host-key trust decision) —
-mirroring how SecureCRT/SecureFX share a session engine.
+- SSH2, Telnet, serial, local shell, TN3270, and first-pass TN5250 sessions
+- VT/xterm terminal rendering, color schemes, logging, keyword highlighting,
+  hex view, scripting, port forwarding, X11 forwarding, and proxy support
+- SFTP, FTP, FTPS, and SCP transfer through Explorer-style and dual-pane views
+- Transfer queues, pause/resume, bandwidth limits, reconnect, synchronization,
+  bookmarks, native Windows drag-out, tar-stream directory transfer, and sudo mode
+- Saved profiles, OS credential storage, host-key trust, import/export, and host
+  operating-system icons
+- `termsync-cli` for transfer, synchronization, scheduling, remote execution,
+  local execution, and remote file editing
 
-## Features (planned)
+See [feature-status.md](docs/feature-status.md) for verified coverage and known
+gaps, and [architecture.md](docs/architecture.md) for the component layout.
 
-- SSH2 terminal emulation (VT100/xterm) with tabbed multi-session support
-- Session manager with saved profiles and OS-keychain credential storage
-- SFTP / FTP / FTPS dual-pane file browser with a transfer queue
-- One-way and two-way directory synchronization
-- Later: Telnet / Serial / rlogin, SCP, X/Y/ZMODEM, port forwarding, scripting, TN3270/5250
+## Build and test
 
-- **Full roadmap / design plan**: [`docs/plan.md`](docs/plan.md) — architecture, tech choices, data model, and all 20 milestones
-- **Feature-parity checklist**: [`docs/ui-parity.md`](docs/ui-parity.md) — every SecureCRT/SecureFX feature mapped to a milestone
-
-## Building
-
-You need a C++17 compiler, **CMake ≥ 3.25**, **Qt 6**, and (for non-Qt dependencies) **vcpkg**.
-Step-by-step per-OS instructions are in [`docs/building.md`](docs/building.md).
+Prerequisites and platform setup are documented in [building.md](docs/building.md).
 
 ```bash
 cmake --preset default
 cmake --build --preset default
+ctest --preset default
 ```
 
-## Tech stack
+The current suite contains 136 automated tests.
 
-| Area | Library | License |
-|---|---|---|
-| SSH2/SFTP | libssh2 | BSD-3 |
-| FTP/FTPS | libcurl | curl (≈MIT) |
-| Terminal emulation | custom VT parser + QPainter | (this project) |
-| Credential storage | QtKeychain | MIT |
-| Config persistence | SQLite + nlohmann-json | Public domain / MIT |
-| UI | Qt 6 Widgets | LGPL |
+## Pre-release packaging
+
+`release/` is the only distribution output. On the configured Windows build
+machine, refresh the runnable bundle and its versioned ZIP with:
+
+```powershell
+powershell -File scripts/make-release.ps1
+```
+
+Do not distribute executables from `build/`; those are development intermediates.
+
+## Technology
+
+| Area | Library |
+|---|---|
+| UI | Qt 6 Widgets |
+| SSH2/SFTP | libssh2 |
+| FTP/FTPS | libcurl |
+| Configuration | SQLite and nlohmann/json |
+| Terminal | Project VT parser, screen buffer, and QPainter renderer |
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). Third-party components retain their own licenses.
-
-*Not affiliated with or endorsed by VanDyke Software. "SecureCRT" and "SecureFX" are
-trademarks of VanDyke Software, Inc., referenced here only to describe compatibility goals.*
+TermSync is licensed under MIT. Third-party components retain their own licenses;
+see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

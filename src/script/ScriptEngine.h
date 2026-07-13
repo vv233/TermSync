@@ -10,7 +10,7 @@ namespace termsync::script {
 class ScriptContext;
 
 // Runs automation scripts against a session. Scripts are JavaScript (via Qt's
-// built-in QJSEngine — no external interpreter) and see a SecureCRT-style
+// built-in QJSEngine - no external interpreter) and see the TermSync automation
 // object model:
 //
 //   crt.Screen.Send("ls\r");

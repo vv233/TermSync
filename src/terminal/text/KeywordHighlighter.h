@@ -23,7 +23,7 @@ struct HighlightSpan
     int colorId = 0;
 };
 
-// Real-time keyword highlighting (SecureCRT feature). Given a set of rules, it
+// Real-time keyword highlighting. Given a set of rules, it
 // returns the spans to colour on a line. Overlaps are resolved deterministically:
 // earlier rules win, and within a rule the leftmost match wins. Pure + testable.
 class KeywordHighlighter

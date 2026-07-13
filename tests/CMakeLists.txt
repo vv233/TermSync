@@ -22,6 +22,7 @@ add_executable(termsync_unit_tests
     unit/color_scheme_test.cpp
     unit/tftp_protocol_test.cpp
     unit/x11_auth_test.cpp
+    unit/tar_archive_test.cpp
 )
 
 target_link_libraries(termsync_unit_tests

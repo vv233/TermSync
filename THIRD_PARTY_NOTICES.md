@@ -21,11 +21,5 @@ are shipped as separate shared libraries (deployed via `windeployqt` on
 Windows), so users can replace them, as the LGPL requires. Qt source is
 available from https://www.qt.io/.
 
-## Trademarks
-
-"SecureCRT" and "SecureFX" are trademarks of VanDyke Software, Inc. TermSync is
-an independent project, not affiliated with or endorsed by VanDyke Software;
-those names are referenced only to describe feature-compatibility goals.
-
 Full license texts for each component are available at the URLs above and are
-included in the binary distribution's `licenses/` folder.
+available from their respective projects.

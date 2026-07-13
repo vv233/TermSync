@@ -3,9 +3,12 @@
 find_package(Qt6 REQUIRED COMPONENTS Core)
 find_package(libssh2 CONFIG REQUIRED)
 find_package(CURL REQUIRED)
+find_package(ZLIB REQUIRED)
 
 add_library(termsync_transfer STATIC
     FileEngine.h
+    archive/TarArchive.h
+    archive/TarArchive.cpp
     sftp/SftpFileEngine.h
     sftp/SftpFileEngine.cpp
     ftp/FtpFileEngine.h
@@ -35,6 +38,7 @@ target_link_libraries(termsync_transfer
     PRIVATE
         libssh2::libssh2
         CURL::libcurl
+        ZLIB::ZLIB
 )
 
 if(WIN32)

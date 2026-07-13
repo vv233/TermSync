@@ -9,7 +9,7 @@ class QProcess;
 
 namespace termsync::core {
 
-// A local shell session (SecureCRT "Local Shell"): runs the platform command
+// A local shell session: runs the platform command
 // interpreter as a child process and drives a terminal view through it. Uses
 // QProcess with merged stdout/stderr, so it needs no worker thread.
 //

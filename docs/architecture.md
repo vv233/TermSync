@@ -1,41 +1,54 @@
 # Architecture
 
-Layered, library-first. See the approved plan for full detail.
+TermSync is a layered Qt application with reusable libraries behind two entry
+points: the desktop application and the headless CLI.
 
+```text
+src/app       desktop bootstrap
+src/cli       transfer, sync, scheduling, and execution CLI
+src/ui        main window, tabs, dialogs, terminal and transfer views
+src/script    JavaScript automation bridge
+src/terminal  VT parser, screen buffer, colors, highlighting, hex formatting
+src/transfer  file engines, queues, synchronization, scheduler, tar archives
+src/core      profiles, credentials, transports, protocols, logging, proxies
 ```
-src/app       main(), bootstrap, dependency wiring
-src/ui        MainWindow, tabs, dialogs, dual-pane browser, sync dialog
-src/terminal  VT parser + screen buffer + QPainter terminal widget
-src/transfer  SFTP/FTP file engines, sync engine, transfer queue
-src/core      shared backbone:
-              - model/       ConnectionProfile, SyncPairDefinition
-              - store/       ProfileStore (SQLite), JSON import/export
-              - credential/  CredentialStore, QtKeychainStore
-              - ssh/         SshConnection, SshChannel (libssh2)
-              - ftp/         FtpConnection (libcurl)
-              - session/     Session (one transport, many channels)
-```
-
-## Key principle: one profile → one transport → many channels
-
-`core::Session::fromProfile()` owns a single authenticated `SshConnection`
-(libssh2 `LIBSSH2_SESSION*`). A terminal tab opens a shell channel; a file
-browser opens an SFTP-subsystem channel — both multiplexed over the same
-authenticated transport, so the user authenticates and trusts the host key once.
 
 ## Dependency direction
 
-`core` (no Qt Widgets) ← `terminal` / `transfer` ← `ui` ← `app`.
-`terminal` and `transfer` never touch sockets directly — they consume
-`core::Session` channel handles, which keeps them independently testable.
+`core` is the shared foundation. `terminal`, `transfer`, and `script` build on
+that foundation. `ui` composes those libraries, and `app` remains a thin
+bootstrap. The CLI links directly to `core` and `transfer` without Qt Widgets.
 
-## Threading
+## Connections and threading
 
-One `QThread` per `Session` runs the libssh2 event loop (libssh2 sessions are
-not thread-safe across threads). Bytes cross to the UI thread via queued
-signals. The transfer queue uses its own worker thread(s).
+A saved profile is the common configuration for terminal and transfer views.
+Each active view owns the protocol connection needed for its work. Network and
+transfer loops run outside the GUI thread and communicate through queued Qt
+signals. Transfer queues can use multiple worker connections while preserving
+per-item progress, cancellation, pause, and retry state.
 
-## Current status
+## Terminal path
 
-**M1** — only `src/ui` (MainWindow shell) and `src/app` are wired into the
-build. The remaining modules are added by their milestones.
+Incoming bytes pass through the selected protocol connection into the VT parser
+and screen buffer. `TerminalWidget` paints the grid with QPainter and translates
+keyboard and mouse input back into terminal sequences. Logging, highlighting,
+hex view, and script hooks observe this same data path.
+
+## Transfer path
+
+`FileEngine` provides the common remote-file contract. SFTP and FTP backends
+implement listing and file operations; `SftpSession` owns the worker thread and
+queue. Directory synchronization compares structured local and remote listings.
+Bulk directory operations can stream tar archives over an SSH command channel,
+with per-file SFTP as the compatibility fallback.
+
+## Persistence
+
+Profiles and non-secret settings are stored in SQLite or QSettings. Secrets are
+stored through the operating-system credential provider. Import/export excludes
+secrets by design.
+
+## Release boundary
+
+Development output stays under `build/`. The only distributable output is
+`release/`, produced by `scripts/make-release.ps1`.

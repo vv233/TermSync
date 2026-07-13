@@ -1,5 +1,8 @@
 #include "mainwindow/MainWindow.h"
 
+#include "common/Icons.h"
+#include "mainwindow/ChromeTabWidget.h"
+
 #include <QAction>
 #include <QActionGroup>
 #include <QCoreApplication>
@@ -13,6 +16,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
+#include <QShowEvent>
 #include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QStatusBar>
@@ -25,8 +29,24 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  include <windowsx.h> // GET_X_LPARAM
+#  include <dwmapi.h>
+#endif
+
+#include <QEvent>
+#include <QHBoxLayout>
+#include <QResizeEvent>
+#include <QSizePolicy>
+#include <QWindow>
+
 #include "ScriptEngine.h"
 #include "home/HostsHomeWidget.h"
+#include "quick_commands/QuickCommandsWidget.h"
 #include "local/LocalShellConnection.h"
 #include "script/TerminalScriptContext.h"
 #include "session_dialogs/KeywordHighlightDialog.h"
@@ -47,6 +67,20 @@
 namespace {
 // Role used to stash a profile id on a session-tree leaf item.
 constexpr int kProfileIdRole = Qt::UserRole + 1;
+
+#ifdef _WIN32
+// Paint the native window title bar dark so it matches the app instead of
+// clashing as a bright bar under a dark UI (Windows draws it light by default
+// when the OS is in light mode).
+void applyDarkTitleBar(QWidget *w)
+{
+    const auto hwnd = reinterpret_cast<HWND>(w->winId());
+    BOOL dark = TRUE;
+    // DWMWA_USE_IMMERSIVE_DARK_MODE is 20 on Windows 10 2004+, 19 on older 10.
+    if (FAILED(DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark))))
+        DwmSetWindowAttribute(hwnd, 19, &dark, sizeof(dark));
+}
+#endif
 } // namespace
 
 namespace termsync::ui {
@@ -60,6 +94,7 @@ MainWindow::MainWindow(QWidget *parent)
     createCentralArea();
     createToolBar();
     createSessionManagerDock();
+    createQuickCommandsDock();
     createMenus();
     createStatusBar();
 
@@ -67,9 +102,109 @@ MainWindow::MainWindow(QWidget *parent)
     initStores();
     addHomeTab();
     loadProfilesIntoTree();
+
+    // After the first tab exists, so the QTabWidget lays the corner widget out.
+    createWindowControls();
+
+#ifdef _WIN32
+    applyDarkTitleBar(this);
+#endif
 }
 
 MainWindow::~MainWindow() = default;
+
+void MainWindow::showEvent(QShowEvent *event)
+{
+    QMainWindow::showEvent(event);
+#ifdef _WIN32
+    // Reapply on first show so the title bar is dark from the very first paint,
+    // and force a frame recompute so WM_NCCALCSIZE strips the native caption.
+    applyDarkTitleBar(this);
+    updateMaximizeIcon();
+#endif
+}
+
+#ifdef _WIN32
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message,
+                            qintptr *result)
+{
+    // Custom frameless caption disabled: Qt would not render the window controls
+    // on the right of this shell's top bar. The native (DWM-darkened) title bar
+    // is used instead. Left here for a future retry.
+    return QMainWindow::nativeEvent(eventType, message, result);
+
+    if (eventType != "windows_generic_MSG")
+        return QMainWindow::nativeEvent(eventType, message, result);
+    auto *msg = static_cast<MSG *>(message);
+
+    switch (msg->message) {
+    case WM_NCCALCSIZE:
+        if (msg->wParam == TRUE) {
+            // Reclaim the caption strip into the client area (removing the native
+            // title bar) while keeping the frame for resize / snap / shadow. When
+            // maximized, inset by the frame so content isn't clipped offscreen.
+            if (IsZoomed(msg->hwnd)) {
+                auto *p = reinterpret_cast<NCCALCSIZE_PARAMS *>(msg->lParam);
+                const int fx = GetSystemMetrics(SM_CXFRAME) +
+                               GetSystemMetrics(SM_CXPADDEDBORDER);
+                const int fy = GetSystemMetrics(SM_CYFRAME) +
+                               GetSystemMetrics(SM_CXPADDEDBORDER);
+                p->rgrc[0].left += fx;
+                p->rgrc[0].right -= fx;
+                p->rgrc[0].top += fy;
+                p->rgrc[0].bottom -= fy;
+            }
+            *result = 0;
+            return true;
+        }
+        break;
+    case WM_NCHITTEST: {
+        const LONG gx = GET_X_LPARAM(msg->lParam);
+        const LONG gy = GET_Y_LPARAM(msg->lParam);
+        RECT wr;
+        GetWindowRect(msg->hwnd, &wr);
+
+        // Native resize grips along the edges (not while maximized).
+        if (!IsZoomed(msg->hwnd)) {
+            const int b = GetSystemMetrics(SM_CXSIZEFRAME) +
+                          GetSystemMetrics(SM_CXPADDEDBORDER);
+            const bool L = gx < wr.left + b, R = gx >= wr.right - b;
+            const bool T = gy < wr.top + b, B = gy >= wr.bottom - b;
+            qintptr hit = 0;
+            if (T && L) hit = HTTOPLEFT;
+            else if (T && R) hit = HTTOPRIGHT;
+            else if (B && L) hit = HTBOTTOMLEFT;
+            else if (B && R) hit = HTBOTTOMRIGHT;
+            else if (L) hit = HTLEFT;
+            else if (R) hit = HTRIGHT;
+            else if (T) hit = HTTOP;
+            else if (B) hit = HTBOTTOM;
+            if (hit) {
+                *result = hit;
+                return true;
+            }
+        }
+
+        // The tab strip doubles as the title bar: empty areas drag the window
+        // (and double-click maximizes), but tabs / buttons stay clickable.
+        const qreal dpr = devicePixelRatioF();
+        const QPoint local(qRound((gx - wr.left) / dpr),
+                           qRound((gy - wr.top) / dpr));
+        if (local.y() >= 0 && local.y() < titleBarHeight()) {
+            QWidget *child = childAt(local);
+            if (!child || child == m_titleBar) {
+                *result = HTCAPTION; // empty title-bar area drags the window
+                return true;
+            }
+        }
+        return false; // HTCLIENT — the widget under the cursor handles it
+    }
+    default:
+        break;
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 void MainWindow::createMenus()
 {
@@ -135,6 +270,11 @@ void MainWindow::createMenus()
         QAction *sm = m_sessionManagerDock->toggleViewAction();
         sm->setText(tr("Session Manager"));
         viewMenu->addAction(sm);
+    }
+    if (m_quickCommandsDock) {
+        QAction *qc = m_quickCommandsDock->toggleViewAction();
+        qc->setText(tr("Quick Commands"));
+        viewMenu->addAction(qc);
     }
     QAction *statusAct = viewMenu->addAction(tr("Status Bar"));
     statusAct->setCheckable(true);
@@ -242,20 +382,19 @@ void MainWindow::createMenus()
                      QStringLiteral(QT_VERSION_STR)));
     });
 
-    // Collapse everything into a single "≡" hamburger in the tab-strip corner,
-    // and hide the classic menu bar (Termius has no menu bar).
-    auto *hamburger = new QToolButton(this);
-    hamburger->setText(QStringLiteral("≡"));
-    hamburger->setToolTip(tr("Menu"));
-    hamburger->setPopupMode(QToolButton::InstantPopup);
-    hamburger->setAutoRaise(true);
-    hamburger->setMenu(appMenu);
-    hamburger->setStyleSheet(QStringLiteral(
+    // Collapse everything into a single "≡" hamburger, hosted in the custom
+    // title bar (created by createWindowControls). Hide the classic menu bar.
+    m_hamburger = new QToolButton(this);
+    m_hamburger->setText(QStringLiteral("≡"));
+    m_hamburger->setToolTip(tr("Menu"));
+    m_hamburger->setPopupMode(QToolButton::InstantPopup);
+    m_hamburger->setAutoRaise(true);
+    m_hamburger->setMenu(appMenu);
+    m_hamburger->setStyleSheet(QStringLiteral(
         "QToolButton { font-size:16pt; color:#c8d0e8; padding:2px 12px;"
         " border:0; background:transparent; }"
         "QToolButton:hover { color:#2dd4bf; }"
         "QToolButton::menu-indicator { image:none; }"));
-    m_sessionTabs->setCornerWidget(hamburger, Qt::TopLeftCorner);
     menuBar()->hide();
 }
 
@@ -300,11 +439,40 @@ void MainWindow::createSessionManagerDock()
     m_sessionManagerDock->hide();
 }
 
+void MainWindow::createQuickCommandsDock()
+{
+    m_quickCommandsDock = new QDockWidget(tr("Quick Commands"), this);
+    m_quickCommandsDock->setObjectName(QStringLiteral("quickCommandsDock"));
+    m_quickCommandsDock->setAllowedAreas(Qt::LeftDockWidgetArea |
+                                         Qt::RightDockWidgetArea);
+    auto *panel = new QuickCommandsWidget(m_quickCommandsDock);
+    connect(panel, &QuickCommandsWidget::runCommand, this,
+            &MainWindow::runQuickCommand);
+    m_quickCommandsDock->setWidget(panel);
+    addDockWidget(Qt::RightDockWidgetArea, m_quickCommandsDock);
+}
+
+void MainWindow::runQuickCommand(const QString &command, bool execute)
+{
+    auto *term = qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+    if (!term) {
+        statusBar()->showMessage(
+            tr("Open a terminal tab to run a quick command"), 4000);
+        return;
+    }
+    QByteArray bytes = command.toUtf8();
+    if (execute)
+        bytes.append('\n');
+    term->sendText(bytes);
+    term->setFocus();
+}
+
 void MainWindow::createCentralArea()
 {
-    m_sessionTabs = new QTabWidget(this);
+    m_sessionTabs = new ChromeTabWidget(this);
     m_sessionTabs->setTabsClosable(true);
     m_sessionTabs->setMovable(true);
+    m_sessionTabs->tabBar()->setExpanding(false);
     connect(m_sessionTabs, &QTabWidget::tabCloseRequested, this,
             [this](int index) {
                 QWidget *w = m_sessionTabs->widget(index);
@@ -314,6 +482,42 @@ void MainWindow::createCentralArea()
     connect(m_sessionTabs, &QTabWidget::currentChanged, this,
             [this](int) { syncHexViewAction(); });
     setCentralWidget(m_sessionTabs);
+}
+
+// The "≡" app menu lives in the tab strip's left corner. (A fully custom
+// frameless title bar was attempted but Qt would not render widgets on the
+// right side of this window's top bar; kept the native — now dark — title bar.)
+void MainWindow::createWindowControls()
+{
+    if (m_hamburger)
+        m_sessionTabs->setCornerWidget(m_hamburger, Qt::TopLeftCorner);
+}
+
+int MainWindow::titleBarHeight() const
+{
+    return m_titleBar && m_titleBar->height() > 8 ? m_titleBar->height() : 40;
+}
+
+void MainWindow::toggleMaximizeRestore()
+{
+    if (isMaximized())
+        showNormal();
+    else
+        showMaximized();
+}
+
+void MainWindow::updateMaximizeIcon()
+{
+    if (m_maxButton)
+        m_maxButton->setText(isMaximized() ? QStringLiteral("❐")
+                                           : QStringLiteral("▢"));
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange)
+        updateMaximizeIcon();
 }
 
 void MainWindow::createStatusBar()
@@ -630,6 +834,8 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
         auto *v = new ExplorerSftpBrowser(params, expectedFp, profile.protocol, this);
         connect(v, &ExplorerSftpBrowser::hostKeyFingerprintReceived, this, onFingerprint);
         connect(v, &ExplorerSftpBrowser::statusMessage, this, onStatus);
+        connect(v, &ExplorerSftpBrowser::osDetected, this,
+                [this, id = profile.id](const QString &os) { rememberHostOs(id, os); });
         view = v;
     }
 
@@ -637,6 +843,19 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
     const int index = m_sessionTabs->addTab(view, tr("%1 Files").arg(baseTitle));
     m_sessionTabs->setCurrentIndex(index);
     statusBar()->showMessage(tr("Opening SFTP for %1...").arg(profile.host), 4000);
+}
+
+void MainWindow::rememberHostOs(const QString &profileId, const QString &osId)
+{
+    if (profileId.isEmpty() || osId.isEmpty())
+        return;
+    QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    const QString key = QStringLiteral("hostos/") + profileId;
+    if (settings.value(key).toString() == osId)
+        return; // unchanged — no need to rebuild the cards
+    settings.setValue(key, osId);
+    if (m_home)
+        m_home->setProfiles(m_profiles); // rebuild cards so the icon updates
 }
 
 void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
@@ -789,7 +1008,7 @@ void MainWindow::toggleSessionLog()
         return;
     }
 
-    // Default name uses SecureCRT-style tokens, expanded by the terminal
+    // Default name uses TermSync log tokens, expanded by the terminal
     // (%S session, %Y/%M/%D date) so a fresh, dated file is created.
     const QString suggested =
         QDir::home().filePath(QStringLiteral("%S-%Y%M%D-%h%m%s.log"));

@@ -2,6 +2,7 @@
 
 #include <QApplication>
 
+#include "common/Icons.h"
 #include "common/Theme.h"
 #include "mainwindow/MainWindow.h"
 
@@ -11,8 +12,9 @@ int main(int argc, char *argv[])
 
     QCoreApplication::setOrganizationName("TermSync");
     QCoreApplication::setApplicationName("TermSync");
-    QCoreApplication::setApplicationVersion("0.1.0");
+    QCoreApplication::setApplicationVersion(TERMSYNC_VERSION);
 
+    app.setWindowIcon(termsync::ui::appIcon());
     termsync::ui::applyDarkTheme(app);
 
     termsync::ui::MainWindow window;

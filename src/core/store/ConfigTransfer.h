@@ -10,7 +10,7 @@ namespace termsync::core {
 
 class ProfileStore;
 
-// Import/Export Settings (SecureCRT wizard). Serialises connection profiles to a
+// Import/export settings support. Serialises connection profiles to a
 // portable JSON document — secrets are never included (only the savePassword
 // flag), matching the store's "no secrets in the profile row" design.
 QByteArray serializeProfiles(const QVector<ConnectionProfile> &profiles);

@@ -58,7 +58,7 @@ public:
     QString screenPlainText() const;
 
     // Session logging (M20b): tee raw received bytes to a file. `pathTemplate`
-    // may contain SecureCRT-style tokens (%H host, %S session, %Y/%M/%D/%h/%m/%s
+    // may contain TermSync tokens (%H host, %S session, %Y/%M/%D/%h/%m/%s
     // date-time) which are expanded using the context set by setLogContext().
     // Returns false if the file could not be opened.
     void setLogContext(const QString &host, const QString &session);

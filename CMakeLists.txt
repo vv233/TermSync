@@ -5,6 +5,11 @@ project(TermSync
     DESCRIPTION "Open-source SSH terminal + SFTP/FTP client"
     LANGUAGES CXX)
 
+set(TERMSYNC_PRERELEASE_LABEL "pre.1" CACHE STRING "Pre-release label")
+set(TERMSYNC_VERSION "${PROJECT_VERSION}-${TERMSYNC_PRERELEASE_LABEL}")
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/termsync-version.txt"
+    CONTENT "${TERMSYNC_VERSION}\n")
+
 # --- Global settings -------------------------------------------------------
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,8 +31,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
 endif()
 
-# Put binaries in a predictable place so Qt deploy tools can find them.
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+# Development builds default to build/<preset>/bin. The release script overrides
+# this so distributable executables are written directly to /release.
+if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+endif()
 
 option(TERMSYNC_BUILD_TESTS "Build unit tests" ON)
 
@@ -38,7 +46,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Sql Network Qml)
 qt_standard_project_setup()
 
 function(termsync_deploy_qsqlite target_name)
-    # M10 packaging will hand runtime deployment over to windeployqt/CPack.
+    # Release deployment is handled by scripts/make-release.ps1.
     if(TARGET Qt6::QSQLiteDriverPlugin)
         add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -55,8 +63,6 @@ endfunction()
 
 # --- Modules ---------------------------------------------------------------
 # Layered: core (no widgets) <- terminal / transfer <- ui <- app.
-# Only the pieces that exist in the current milestone are wired up here;
-# later milestones add_subdirectory their own modules.
 add_subdirectory(src/core)
 add_subdirectory(src/terminal)
 add_subdirectory(src/transfer)
@@ -69,27 +75,3 @@ if(TERMSYNC_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
-
-# --- Packaging (M10) -------------------------------------------------------
-set(CPACK_PACKAGE_NAME "TermSync")
-set(CPACK_PACKAGE_VENDOR "TermSync contributors")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "SSH terminal + SFTP/FTP client")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "TermSync")
-set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
-
-if(WIN32)
-    # NSIS installer (requires NSIS installed to actually build the package).
-    set(CPACK_GENERATOR "NSIS;ZIP")
-    set(CPACK_NSIS_PACKAGE_NAME "TermSync")
-    set(CPACK_NSIS_DISPLAY_NAME "TermSync")
-    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
-    set(CPACK_NSIS_MUI_FINISHPAGE_RUN "termsync.exe")
-    set(CPACK_PACKAGE_EXECUTABLES "termsync;TermSync")
-elseif(APPLE)
-    set(CPACK_GENERATOR "DragNDrop")
-else()
-    set(CPACK_GENERATOR "TGZ")
-endif()
-
-include(CPack)

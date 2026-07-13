@@ -1,4 +1,4 @@
-# termsync-cli: headless SFTP/FTP transfer & sync tool (SFXCL-style).
+# termsync-cli: headless SFTP/FTP transfer and synchronization tool.
 add_executable(termsync_cli
     main.cpp
 )
@@ -10,4 +10,8 @@ target_link_libraries(termsync_cli
         termsync_transfer
         termsync_core
         Qt6::Core
+)
+
+target_compile_definitions(termsync_cli PRIVATE
+    TERMSYNC_VERSION="${TERMSYNC_VERSION}"
 )

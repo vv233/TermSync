@@ -1,4 +1,4 @@
-// termsync-cli — headless SFTP/FTP transfer & sync tool (SecureFX SFXCL-style).
+// termsync-cli - headless SFTP/FTP transfer and synchronization tool.
 //
 //   termsync-cli --host H --user U [--password P | --key FILE] <command> [args]
 //
@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName("termsync-cli");
-    QCoreApplication::setApplicationVersion("0.1");
+    QCoreApplication::setApplicationVersion(TERMSYNC_VERSION);
 
     QCommandLineParser p;
     p.setApplicationDescription(

@@ -19,14 +19,23 @@ struct TransferItem
 {
     enum Direction { Upload, Download };
     enum State { Queued, Active, Done, Failed, Cancelled };
+    // A regular per-file transfer, or a whole-directory bundle streamed through
+    // one `tar` channel (fast for many small files; see enqueueBulkDir*).
+    enum Kind { File, BulkDir };
 
     int id = 0;
     Direction direction = Download;
+    Kind kind = File;
     QString localPath;
     QString remotePath;
     QString displayName;
     quint64 size = 0;
     State state = Queued;
+    // BulkDir only: gzip tri-state (-1 auto-detect, 0 off, 1 on). Auto compresses
+    // many-small-files trees and streams large/incompressible ones raw for speed.
+    // localPath/remotePath name the *parent* dir the folder is extracted into /
+    // archived from.
+    int gzip = -1;
 };
 
 class SftpWorker; // internal
@@ -53,6 +62,18 @@ public:
     // Queues a transfer and returns its assigned id.
     int enqueue(TransferItem item);
 
+    // Queues a whole-folder transfer that bundles the tree through a single
+    // `tar` stream instead of one SFTP round-trip per file — the fast path for
+    // directories with many small files. Returns the transfer id (progress and
+    // completion arrive via the usual transferQueued/Progress/Finished signals).
+    // `localParentDir` is the local folder the remote tree is extracted into;
+    // `remoteParentDir` is the remote folder a local tree is unpacked into.
+    // gzip < 0 = auto-detect (compress when the tree is many small files).
+    int enqueueBulkDownload(const QString &remoteDir, const QString &localParentDir,
+                            const QString &displayName, int gzip = -1);
+    int enqueueBulkUpload(const QString &localDir, const QString &remoteParentDir,
+                          const QString &displayName, int gzip = -1);
+
 public slots:
     void connectToHost();
     void listDirectory(const QString &path);
@@ -69,8 +90,17 @@ public slots:
     // arrives via syncListingReady.
     void requestSyncListing(const QString &root);
 
+    // Privilege escalation: when enabled, list / transfer / mkdir / delete /
+    // rename run through `sudo` so root-owned files are accessible. The password
+    // is validated against `sudo` and kept only in the worker (never persisted).
+    // The result arrives via sudoModeChanged.
+    void setSudo(bool enabled, const QString &password);
+
 signals:
     void connected();
+    // The detected remote OS id (e.g. "ubuntu", "debian", "windows"), probed
+    // once after connect; empty if it couldn't be determined.
+    void osDetected(const QString &osId);
     void hostKeyFingerprint(const QString &fingerprint);
     void connectionFailed(const QString &reason);
     void directoryListed(const QString &path, const QVector<SftpEntry> &entries);
@@ -79,6 +109,8 @@ signals:
     void transferProgress(int id, quint64 done, quint64 total);
     void transferFinished(int id, bool ok, const QString &message);
     void syncListingReady(const QString &root, const sync::Listing &listing, bool ok);
+    // enabled = whether sudo mode is now active; ok/message report validation.
+    void sudoModeChanged(bool enabled, bool ok, const QString &message);
 
 private:
     QThread *m_thread = nullptr;

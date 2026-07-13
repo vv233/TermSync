@@ -7,7 +7,7 @@
 
 namespace termsync::core {
 
-// Expand a log-filename template. Tokens (SecureCRT-style):
+// Expand a log-filename template. TermSync tokens:
 //   %H host   %S session   %Y year   %M month(01-12)   %D day(01-31)
 //   %h hour(00-23)   %m minute   %s second   %% literal '%'
 QString expandLogFilename(const QString &tmpl, const QString &host,
@@ -27,7 +27,7 @@ struct SessionLogOptions
 };
 
 // Appends a terminal session's output to a file, with optional per-line
-// timestamps and size-based rotation (SecureCRT "Log Session"). File I/O is
+// timestamps and size-based rotation. File I/O is
 // isolated so the templating/timestamp helpers above stay pure-testable.
 class SessionLogger
 {

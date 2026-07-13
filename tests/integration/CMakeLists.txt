@@ -47,6 +47,24 @@ target_link_libraries(sftp_features
         Qt6::Core
 )
 
+add_executable(bulk_tar_smoke
+    bulk_tar_smoke.cpp
+)
+target_link_libraries(bulk_tar_smoke
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
+add_executable(sudo_smoke
+    sudo_smoke.cpp
+)
+target_link_libraries(sudo_smoke
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
 add_executable(credential_smoke
     credential_smoke.cpp
 )
@@ -141,6 +159,26 @@ add_executable(drag_upload_smoke
     drag_upload_smoke.cpp
 )
 target_link_libraries(drag_upload_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
+if(WIN32)
+    add_executable(win_dragout_smoke
+        win_dragout_smoke.cpp
+    )
+    target_link_libraries(win_dragout_smoke
+        PRIVATE
+            termsync_ui
+            Qt6::Widgets
+    )
+endif()
+
+add_executable(tabbar_render_smoke
+    tabbar_render_smoke.cpp
+)
+target_link_libraries(tabbar_render_smoke
     PRIVATE
         termsync_ui
         Qt6::Widgets

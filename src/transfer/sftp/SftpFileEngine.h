@@ -46,6 +46,16 @@ public:
     bool setModifiedTime(const QString &remotePath, qint64 secsSinceEpoch) override;
     // Run a command on the server over an SSH exec channel (raw/quote command).
     bool runCommand(const QString &command, QString *stdoutText, int *exitCode) override;
+    // Streaming exec, used by the bulk folder-transfer path (tar over one
+    // channel instead of N per-file SFTP round-trips).
+    bool runCommandToFile(const QString &command, const QString &localPath,
+                          ProgressFn progress = {},
+                          const std::atomic<bool> *cancel = nullptr,
+                          int *exitCode = nullptr) override;
+    bool runCommandFromFile(const QString &command, const QString &localPath,
+                            ProgressFn progress = {},
+                            const std::atomic<bool> *cancel = nullptr,
+                            int *exitCode = nullptr) override;
     void setRateLimitBytesPerSec(quint64 bytesPerSec) override { m_rateBytesPerSec = bytesPerSec; }
     void setResume(bool resume) override { m_resume = resume; }
     void setPauseFlag(const std::atomic<bool> *pause) override { m_pauseFlag = pause; }

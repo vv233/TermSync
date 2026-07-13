@@ -55,7 +55,7 @@ private:
     bool m_done = false;
 };
 
-// A minimal built-in TFTP server (SecureCRT feature). Serves files from a root
+// A minimal built-in TFTP server. Serves files from a root
 // directory over UDP; RRQ reads and WRQ writes, with a read-only + overwrite
 // policy and path-traversal protection. Event-driven (QUdpSocket), no threads.
 class TftpServer : public QObject

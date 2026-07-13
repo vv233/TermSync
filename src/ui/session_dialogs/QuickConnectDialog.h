@@ -12,10 +12,8 @@ class QSpinBox;
 
 namespace termsync::ui {
 
-// Minimal M2 Quick Connect dialog: enough fields to open an SSH2 shell
-// (host/port/username/password). This mirrors the SecureCRT "Quick Connect"
-// dialog's core fields; protocol/firewall/auth-method options are added as
-// their milestones land (see docs/ui-parity.md).
+// Compact connection dialog for host, protocol, authentication, proxy, and
+// protocol-specific options.
 class QuickConnectDialog : public QDialog
 {
     Q_OBJECT

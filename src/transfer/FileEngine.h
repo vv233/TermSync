@@ -68,6 +68,27 @@ public:
     // Run a command on the server (SSH exec channel), capturing stdout and the
     // exit code. False if unsupported (e.g. FTP). This is the "raw/quote" path.
     virtual bool runCommand(const QString &, QString *, int *) { return false; }
+    // Stream a command's stdout to a local file (e.g. `tar cf -` for a bulk
+    // folder download). Reports bytes written via progress; honours cancel.
+    // *exitCode is the remote command's status. False if unsupported.
+    virtual bool runCommandToFile(const QString & /*command*/,
+                                  const QString & /*localPath*/,
+                                  ProgressFn /*progress*/ = {},
+                                  const std::atomic<bool> * /*cancel*/ = nullptr,
+                                  int * /*exitCode*/ = nullptr)
+    {
+        return false;
+    }
+    // Stream a local file to a command's stdin (e.g. `tar xf -` for a bulk
+    // folder upload). Reports bytes sent via progress; honours cancel.
+    virtual bool runCommandFromFile(const QString & /*command*/,
+                                    const QString & /*localPath*/,
+                                    ProgressFn /*progress*/ = {},
+                                    const std::atomic<bool> * /*cancel*/ = nullptr,
+                                    int * /*exitCode*/ = nullptr)
+    {
+        return false;
+    }
 
     // Cap the aggregate transfer rate in bytes/second (0 = unlimited). Backends
     // that don't implement throttling ignore it.

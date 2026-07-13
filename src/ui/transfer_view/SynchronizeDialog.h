@@ -12,7 +12,7 @@ class QTableWidget;
 
 namespace termsync::ui {
 
-// SecureFX-style Synchronize window: pick a direction, Preview shows the exact
+// Synchronize window: pick a direction, Preview shows the exact
 // dry-run action list (uploads/downloads/deletes), then Start executes it.
 // The heavy lifting (diff + execution) is supplied by the owner as callbacks so
 // the dialog stays UI-only.

@@ -67,7 +67,7 @@ int main(int argc, char *argv[])
         QTimer::singleShot(400, [w, entries, viewMode] {
             QMetaObject::invokeMethod(
                 w, "onDirectoryListed", Qt::DirectConnection,
-                Q_ARG(QString, QStringLiteral("/home/demo/project")),
+                Q_ARG(QString, QStringLiteral("/srv/demo/project")),
                 Q_ARG(QVector<SftpEntry>, entries));
             if (viewMode >= 0)
                 QMetaObject::invokeMethod(w, "setViewMode", Qt::DirectConnection,

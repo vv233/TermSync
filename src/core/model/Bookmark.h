@@ -4,7 +4,7 @@
 
 namespace termsync::core {
 
-// A saved location in the file browser (SecureFX-style bookmark). `host` scopes
+// A saved location in the file browser. `host` scopes
 // it to a connection (empty = global / any host); `remotePath` is the folder it
 // jumps to, with an optional paired `localPath` for the local pane.
 struct Bookmark

@@ -5,7 +5,7 @@
 
 namespace termsync::core {
 
-// Firewall / proxy configuration for a connection (SecureCRT's "Firewall").
+// Firewall and proxy configuration for a connection.
 struct ProxyConfig
 {
     enum class Type { None, Socks5, Http };

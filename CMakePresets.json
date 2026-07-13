@@ -18,15 +18,6 @@
       }
     },
     {
-      "name": "release",
-      "inherits": "default",
-      "displayName": "Release",
-      "binaryDir": "${sourceDir}/build/release",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
       "name": "no-vcpkg",
       "inherits": "default",
       "displayName": "Default without vcpkg toolchain",
@@ -41,10 +32,6 @@
     {
       "name": "default",
       "configurePreset": "default"
-    },
-    {
-      "name": "release",
-      "configurePreset": "release"
     }
   ],
   "testPresets": [

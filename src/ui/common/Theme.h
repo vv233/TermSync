@@ -67,14 +67,19 @@ inline void applyDarkTheme(QApplication &app)
         QDockWidget::title { background: #16171f; padding: 8px 10px;
             border-bottom: 1px solid #2a2c3a; }
 
-        /* Tabs */
+        /* Tabs — a slim top strip with rounded, floating tabs (Termius-style) */
         QTabWidget::pane { border: 0; background: #1a1b26; }
+        QTabBar { background: transparent; }
         QTabBar::tab { background: transparent; color: #8a92b2;
-            padding: 8px 16px; margin-right: 2px;
-            border-top-left-radius: 6px; border-top-right-radius: 6px; }
-        QTabBar::tab:hover { background: #23252f; color: #c8d0e8; }
-        QTabBar::tab:selected { background: #1f2130; color: #ffffff;
+            padding: 8px 16px; margin: 4px 3px 0 3px; min-height: 18px;
+            border: none;
+            border-top-left-radius: 9px; border-top-right-radius: 9px; }
+        QTabBar::tab:hover { background: #20222e; color: #c8d0e8; }
+        QTabBar::tab:selected { background: #262a3b; color: #ffffff;
             border-bottom: 2px solid #2dd4bf; }
+        QTabBar::close-button { subcontrol-position: right; margin-right: 2px;
+            border-radius: 4px; }
+        QTabBar::close-button:hover { background: #f04a5a; }
 
         /* Trees & tables (session list / file panes) */
         QTreeWidget, QTreeView, QTableWidget, QTableView {

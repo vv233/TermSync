@@ -7,10 +7,13 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSettings>
 #include <QVBoxLayout>
+#include <QtMath>
 
 namespace termsync::ui {
 
@@ -32,10 +35,112 @@ QString protocolName(core::Protocol p)
     return QStringLiteral("ssh");
 }
 
-// A rounded square "avatar" with the host's initial, tinted by a hash of the
-// name so each host is visually distinct (like Termius's per-host icons).
-QPixmap avatar(const QString &name, int size)
+// Brand colour for a detected OS id (see detectOsId in the transfer layer).
+QColor osColor(const QString &os)
 {
+    if (os == "ubuntu")   return QColor(0xE9, 0x54, 0x20);
+    if (os == "debian" || os == "raspbian") return QColor(0xA8, 0x1D, 0x33);
+    if (os == "fedora")   return QColor(0x3C, 0x6E, 0xB4);
+    if (os == "rhel" || os == "centos" || os == "rocky" || os == "almalinux")
+        return QColor(0xEE, 0x00, 0x00);
+    if (os == "arch")     return QColor(0x17, 0x93, 0xD1);
+    if (os == "alpine")   return QColor(0x0D, 0x59, 0x7F);
+    if (os == "suse" || os == "opensuse") return QColor(0x30, 0xBA, 0x78);
+    if (os == "mint")     return QColor(0x87, 0xCF, 0x3E);
+    if (os == "kali")     return QColor(0x26, 0x77, 0xC9);
+    if (os == "freebsd")  return QColor(0xAB, 0x2B, 0x28);
+    if (os == "macos")    return QColor(0x88, 0x90, 0x9c);
+    if (os == "windows")  return QColor(0x00, 0x78, 0xD4);
+    if (os == "linux")    return QColor(0x33, 0x37, 0x44);
+    return QColor();
+}
+
+// Draws a simple, recognisable white mark for the OSes that have an easy glyph;
+// returns false to fall back to the name initial.
+bool drawOsMark(QPainter &p, const QString &os, const QRectF &r)
+{
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+    const QColor ink = os == "mint" ? QColor(0x16, 0x30, 0x16) : Qt::white;
+    p.setPen(Qt::NoPen);
+    p.setBrush(ink);
+    const qreal cx = r.center().x(), cy = r.center().y(), s = r.width();
+    bool handled = true;
+    if (os == "windows") {
+        const qreal g = s * 0.06, w = (s * 0.44 - g) / 2, x0 = cx - s * 0.22,
+                    y0 = cy - s * 0.22;
+        p.drawRect(QRectF(x0, y0, w, w));
+        p.drawRect(QRectF(x0 + w + g, y0, w, w));
+        p.drawRect(QRectF(x0, y0 + w + g, w, w));
+        p.drawRect(QRectF(x0 + w + g, y0 + w + g, w, w));
+    } else if (os == "arch" || os == "alpine") {
+        QPainterPath tri; // a mountain / triangle
+        tri.moveTo(cx, cy - s * 0.24);
+        tri.lineTo(cx + s * 0.26, cy + s * 0.22);
+        tri.lineTo(cx - s * 0.26, cy + s * 0.22);
+        tri.closeSubpath();
+        p.drawPath(tri);
+    } else if (os == "ubuntu") {
+        // Circle of friends: a ring with three dots.
+        QPen ring(ink, s * 0.07);
+        p.setPen(ring);
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QPointF(cx, cy), s * 0.18, s * 0.18);
+        p.setPen(Qt::NoPen);
+        p.setBrush(ink);
+        for (int i = 0; i < 3; ++i) {
+            const double a = (i * 120 - 90) * M_PI / 180.0;
+            p.drawEllipse(QPointF(cx + s * 0.18 * qCos(a), cy + s * 0.18 * qSin(a)),
+                          s * 0.055, s * 0.055);
+        }
+    } else if (os == "macos") {
+        QPainterPath apple; // simple apple silhouette
+        apple.addEllipse(QPointF(cx - s * 0.09, cy + s * 0.02), s * 0.14, s * 0.15);
+        apple.addEllipse(QPointF(cx + s * 0.09, cy + s * 0.02), s * 0.14, s * 0.15);
+        apple.addRect(QRectF(cx - s * 0.16, cy - s * 0.1, s * 0.32, s * 0.2));
+        p.drawPath(apple.simplified());
+        // leaf
+        p.drawEllipse(QPointF(cx + s * 0.06, cy - s * 0.2), s * 0.05, s * 0.09);
+    } else {
+        handled = false;
+    }
+    p.restore();
+    return handled;
+}
+
+QPixmap drawTile(const QColor &bg, int size)
+{
+    QPixmap pm(size, size);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(bg);
+    p.setPen(Qt::NoPen);
+    p.drawRoundedRect(0, 0, size, size, size * 0.28, size * 0.28);
+    return pm;
+}
+
+// A rounded square "avatar": an OS logo/brand tile when the host's OS is known,
+// otherwise the host's initial tinted by a hash of the name (Termius-style).
+QPixmap avatar(const QString &name, const QString &os, int size)
+{
+    const QColor brand = osColor(os);
+    if (brand.isValid()) {
+        QPixmap pm = drawTile(brand, size);
+        QPainter p(&pm);
+        if (!drawOsMark(p, os, QRectF(0, 0, size, size))) {
+            // Brand tile + distro initial for OSes without a drawn glyph.
+            p.setPen(Qt::white);
+            QFont f = p.font();
+            f.setPixelSize(int(size * 0.5));
+            f.setBold(true);
+            p.setFont(f);
+            p.drawText(pm.rect(), Qt::AlignCenter,
+                       os.left(1).toUpper());
+        }
+        return pm;
+    }
+
     static const QColor palette[] = {
         QColor(0xe9, 0x5b, 0x3a), QColor(0x2d, 0xd4, 0xbf),
         QColor(0x7a, 0xa2, 0xf7), QColor(0xbb, 0x9a, 0xf7),
@@ -44,16 +149,8 @@ QPixmap avatar(const QString &name, int size)
     uint h = 0;
     for (const QChar &c : name)
         h = h * 31 + c.unicode();
-    const QColor c = palette[h % (sizeof(palette) / sizeof(palette[0]))];
-
-    QPixmap pm(size, size);
-    pm.fill(Qt::transparent);
+    QPixmap pm = drawTile(palette[h % (sizeof(palette) / sizeof(palette[0]))], size);
     QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setBrush(c);
-    p.setPen(Qt::NoPen);
-    p.drawRoundedRect(0, 0, size, size, size * 0.28, size * 0.28);
-
     p.setPen(QColor(0x10, 0x12, 0x18));
     QFont f = p.font();
     f.setPixelSize(int(size * 0.5));
@@ -63,6 +160,13 @@ QPixmap avatar(const QString &name, int size)
         name.isEmpty() ? QStringLiteral("?") : name.left(1).toUpper();
     p.drawText(pm.rect(), Qt::AlignCenter, initial);
     return pm;
+}
+
+// The persisted OS id for a host (written on connect; see MainWindow).
+QString hostOs(const QString &id)
+{
+    QSettings s(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    return s.value(QStringLiteral("hostos/") + id).toString();
 }
 
 } // namespace
@@ -86,7 +190,7 @@ HostCard::HostCard(const core::ConnectionProfile &profile, QWidget *parent)
     row->setSpacing(12);
 
     auto *icon = new QLabel(this);
-    icon->setPixmap(avatar(profile.name, 40));
+    icon->setPixmap(avatar(profile.name, hostOs(profile.id), 40));
     icon->setFixedSize(40, 40);
     row->addWidget(icon);
 

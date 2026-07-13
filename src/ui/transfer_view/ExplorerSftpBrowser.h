@@ -13,6 +13,7 @@
 class QLabel;
 class QLineEdit;
 class QProgressBar;
+class QProgressDialog;
 class QPushButton;
 class QStackedWidget;
 class QTableWidget;
@@ -43,6 +44,8 @@ public:
 signals:
     void statusMessage(const QString &message);
     void hostKeyFingerprintReceived(const QString &fingerprint);
+    // Detected remote OS id (for the host icon), forwarded from the session.
+    void osDetected(const QString &osId);
 
 private slots:
     void onConnected();
@@ -54,6 +57,10 @@ private slots:
     void onTransferFinished(int id, bool ok, const QString &message);
     void onSyncListingReady(const QString &root,
                             const transfer::sync::Listing &listing, bool ok);
+    // Privilege escalation: toggle prompts for the sudo password; the result
+    // updates the button and refreshes the listing.
+    void toggleSudo(bool on);
+    void onSudoModeChanged(bool enabled, bool ok, const QString &message);
 
     void onItemActivated(int row, int column);
     void onIconActivated(QListWidgetItem *item);
@@ -104,10 +111,16 @@ private:
     // the current remote directory.
     void uploadUrls(const QList<QUrl> &urls);
     void uploadLocalEntry(const QString &localPath, const QString &remoteDir);
-    // Downloads the selected remote files into a fresh temp folder; `onReady` is
-    // called with the local paths once every file has arrived (for clipboard /
-    // drag-out to Windows Explorer, which needs real files).
-    void downloadSelectedToTemp(std::function<void(const QStringList &)> onReady);
+    // Downloads the selected remote items into a fresh temp folder; `onReady` is
+    // called with the local paths once everything has arrived (for clipboard /
+    // drag-out to Windows Explorer, which needs real files). Folders come down as
+    // a single tar stream. When `showProgress` is set a modeless progress dialog
+    // is shown (used by copy; drag-out drives its own blocking dialog).
+    void downloadSelectedToTemp(std::function<void(const QStringList &)> onReady,
+                                bool showProgress = false);
+    // Blocking variant used by drag-out: fetches the selection to temp (pumping
+    // events) and returns the local paths, or empty on cancel.
+    QStringList prepareSelectionToTemp();
     void maybeFinishTemp();
 
     transfer::SftpSession *m_session = nullptr;
@@ -132,6 +145,7 @@ private:
     QToolButton *m_downloadBtn = nullptr;
     QToolButton *m_renameBtn = nullptr;
     QToolButton *m_deleteBtn = nullptr;
+    QToolButton *m_sudoBtn = nullptr; // checkable: route ops through sudo
 
     // View modes (match the Windows 11 Explorer "View" menu).
     enum ViewMode {
@@ -167,13 +181,17 @@ private:
 
     // Pending "download to temp" batch (for copy-out / drag-out to Explorer).
     // m_tempPaths holds the top-level temp paths (the selected files/folders);
-    // m_tempBatch tracks the in-flight file downloads and m_tempPendingDirs the
-    // recursive folder listings still awaited.
+    // m_tempBatch tracks the in-flight transfers (per-file downloads + whole-dir
+    // tar bundles) and m_tempPendingDirs the recursive listings still awaited by
+    // the per-file fallback used when the remote lacks tar.
     QSet<int> m_tempBatch;
+    QHash<int, QString> m_tempBulkDirs; // bulk-dir transfer id -> remote dir
     QStringList m_tempPaths;
     QString m_tempBaseDir;
     int m_tempPendingDirs = 0;
     std::function<void(const QStringList &)> m_tempOnReady;
+    QProgressDialog *m_tempProgress = nullptr;
+    quint64 m_tempBytes = 0; // bytes fetched so far (for the progress label)
 };
 
 } // namespace termsync::ui

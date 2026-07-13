@@ -1,6 +1,7 @@
 // Renders the Hosts home page with demo host cards. Usage: home_render_smoke <out.png>
 
 #include <QApplication>
+#include <QSettings>
 #include <QTimer>
 #include <cstdio>
 
@@ -32,11 +33,24 @@ int main(int argc, char *argv[])
     }
     using P = termsync::core::Protocol;
     QVector<termsync::core::ConnectionProfile> profiles = {
-        host("linux-lab", "host.example.test", "demo", P::SSH2),
-        host("prod-web-01", "web01.example.com", "deploy", P::SSH2),
-        host("nas", "nas.local", "admin", P::SFTP_ONLY),
-        host("switch-core", "10.0.0.1", "netadmin", P::TELNET),
+        host("ubuntu-box", "host.example.test", "demo", P::SSH2),
+        host("debian-box", "d.example.com", "deploy", P::SSH2),
+        host("fedora-box", "f.example.com", "admin", P::SSH2),
+        host("rhel-box", "r.example.com", "admin", P::SSH2),
+        host("arch-box", "a.example.com", "admin", P::SSH2),
+        host("alpine-box", "al.example.com", "admin", P::SFTP_ONLY),
+        host("mac-mini", "m.example.com", "admin", P::SSH2),
+        host("win-server", "w.example.com", "Administrator", P::SSH2),
+        host("suse-box", "s.example.com", "admin", P::SSH2),
+        host("unknown-host", "x.example.com", "root", P::TELNET),
     };
+    // Assign each a detected OS so every icon variant renders.
+    const char *oses[] = {"ubuntu", "debian", "fedora", "rhel",  "arch",
+                          "alpine", "macos",  "windows", "suse",  ""};
+    QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    for (int i = 0; i < profiles.size(); ++i)
+        settings.setValue(QStringLiteral("hostos/") + profiles[i].id,
+                          QString::fromUtf8(oses[i]));
 
     auto *w = new termsync::ui::HostsHomeWidget;
     w->setProfiles(profiles);

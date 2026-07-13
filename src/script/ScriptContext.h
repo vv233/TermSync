@@ -6,7 +6,7 @@ namespace termsync::script {
 
 // The bridge between a running script and a live session. The scripting engine
 // exposes these operations to JavaScript as the crt.Screen / crt.Session object
-// model (SecureCRT-compatible semantics). A real terminal implements this; unit
+// model. A real terminal implements this bridge; unit
 // tests provide a fake.
 class ScriptContext
 {

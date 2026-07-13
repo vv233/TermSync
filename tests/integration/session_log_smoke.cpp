@@ -1,6 +1,6 @@
 // Headless smoke test for the TerminalWidget session-logging tee (M20b GUI
 // wiring). Feeds bytes through a fake connection and checks they land in the
-// log file, with SecureCRT-style filename tokens expanded. No server needed;
+// log file, with TermSync filename tokens expanded. No server needed;
 // run with QT_QPA_PLATFORM=offscreen.
 //
 // Usage: session_log_smoke   (exit 0 = pass, 1 = fail)

@@ -11,6 +11,7 @@
 class QAction;
 class QTabWidget;
 class QToolBar;
+class QToolButton;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QDockWidget;
@@ -23,10 +24,9 @@ class HostsHomeWidget;
 
 // The application main window.
 //
-// M1 scope: assemble the SecureCRT/SecureFX-style outer shell only —
-// menu bar, toolbar, dockable Session Manager, a tabbed session area,
-// and a status bar. Actions are present but not yet functional; each
-// milestone fills them in (see docs/ui-parity.md).
+// Main application shell: menus, tabs, host navigation, session management,
+// status reporting, and dockable tools. Unavailable actions stay disabled until
+// their complete workflow is present.
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -35,12 +35,31 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+protected:
+    void showEvent(QShowEvent *event) override;
+    void changeEvent(QEvent *event) override;
+#ifdef _WIN32
+    // Custom window frame: removes the native caption so the tab strip becomes
+    // the title bar (Termius-style), while keeping native resize / snap / shadow.
+    bool nativeEvent(const QByteArray &eventType, void *message,
+                     qintptr *result) override;
+#endif
+
 private:
     void createMenus();
+    // Builds the min / maximize / close buttons that sit in the tab strip.
+    void createWindowControls();
+    void toggleMaximizeRestore();
+    void updateMaximizeIcon();
+    // Height of the draggable title strip (the tab-bar row).
+    int titleBarHeight() const;
     void createToolBar();
     void createSessionManagerDock();
+    void createQuickCommandsDock();
     void createCentralArea();
     void createStatusBar();
+    // Sends a quick-command snippet to the active terminal tab (if any).
+    void runQuickCommand(const QString &command, bool execute);
 
     // Adds the (non-closable) Hosts home tab — the app's landing page.
     void addHomeTab();
@@ -51,6 +70,9 @@ private:
     void deleteHost(const QString &id);
     // Parses "user@host[:port]" from the home connect bar and connects.
     void quickConnectFromText(const QString &text);
+
+    // Persists a host's detected OS id and refreshes the home cards' icons.
+    void rememberHostOs(const QString &profileId, const QString &osId);
 
     // Opens the Quick Connect dialog and, on accept, starts an SSH2 session
     // in a new tab.
@@ -113,7 +135,11 @@ private:
                        const QString &fingerprint);
 
     QTabWidget *m_sessionTabs = nullptr;
+    QWidget *m_titleBar = nullptr;      // custom caption row (hamburger + controls)
+    QToolButton *m_hamburger = nullptr; // app menu button, lives in the title bar
+    QToolButton *m_maxButton = nullptr; // its icon toggles maximize/restore
     QDockWidget *m_sessionManagerDock = nullptr;
+    QDockWidget *m_quickCommandsDock = nullptr;
     QTreeWidget *m_sessionTree = nullptr;
     HostsHomeWidget *m_home = nullptr;
     QToolBar *m_toolbar = nullptr;

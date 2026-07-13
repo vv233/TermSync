@@ -1525,6 +1525,140 @@ bool SftpFileEngine::runCommand(const QString &command, QString *stdoutText, int
     return true;
 }
 
+bool SftpFileEngine::runCommandToFile(const QString &command, const QString &localPath,
+                                      ProgressFn progress,
+                                      const std::atomic<bool> *cancel, int *exitCode)
+{
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    if (!session) { setError(QStringLiteral("Not connected")); return false; }
+
+    QFile out(localPath);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        setError(QStringLiteral("Cannot write %1").arg(localPath));
+        return false;
+    }
+
+    LIBSSH2_CHANNEL *channel = libssh2_channel_open_session(session);
+    if (!channel) { setError(QStringLiteral("Could not open exec channel")); return false; }
+
+    const QByteArray cmd = command.toUtf8();
+    if (libssh2_channel_exec(channel, cmd.constData()) != 0) {
+        libssh2_channel_free(channel);
+        setError(QStringLiteral("Could not exec: %1").arg(command));
+        return false;
+    }
+
+    quint64 done = 0;
+    char buffer[1 << 16];
+    for (;;) {
+        if (cancel && cancel->load()) {
+            libssh2_channel_free(channel);
+            out.close();
+            out.remove();
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
+        const ssize_t n = libssh2_channel_read(channel, buffer, sizeof(buffer));
+        if (n > 0) {
+            if (out.write(buffer, n) != n) {
+                libssh2_channel_free(channel);
+                setError(QStringLiteral("Write failed: %1").arg(localPath));
+                return false;
+            }
+            done += static_cast<quint64>(n);
+            if (progress)
+                progress(done, 0);
+            continue;
+        }
+        break; // 0 = EOF (blocking session, so no EAGAIN here)
+    }
+    if (!out.flush()) {
+        libssh2_channel_free(channel);
+        setError(QStringLiteral("Write failed: %1").arg(localPath));
+        return false;
+    }
+    out.close();
+    libssh2_channel_send_eof(channel);
+    libssh2_channel_wait_eof(channel);
+    libssh2_channel_wait_closed(channel);
+    const int status = libssh2_channel_get_exit_status(channel);
+    if (exitCode)
+        *exitCode = status;
+    libssh2_channel_free(channel);
+    if (status != 0)
+        setError(QStringLiteral("Remote command exited with status %1").arg(status));
+    return status == 0;
+}
+
+bool SftpFileEngine::runCommandFromFile(const QString &command, const QString &localPath,
+                                        ProgressFn progress,
+                                        const std::atomic<bool> *cancel, int *exitCode)
+{
+    auto *session = static_cast<LIBSSH2_SESSION *>(m_session);
+    if (!session) { setError(QStringLiteral("Not connected")); return false; }
+
+    QFile in(localPath);
+    if (!in.open(QIODevice::ReadOnly)) {
+        setError(QStringLiteral("Cannot read %1").arg(localPath));
+        return false;
+    }
+    const quint64 total = static_cast<quint64>(in.size());
+
+    LIBSSH2_CHANNEL *channel = libssh2_channel_open_session(session);
+    if (!channel) { setError(QStringLiteral("Could not open exec channel")); return false; }
+
+    const QByteArray cmd = command.toUtf8();
+    if (libssh2_channel_exec(channel, cmd.constData()) != 0) {
+        libssh2_channel_free(channel);
+        setError(QStringLiteral("Could not exec: %1").arg(command));
+        return false;
+    }
+
+    quint64 done = 0;
+    char buffer[1 << 16];
+    for (;;) {
+        if (cancel && cancel->load()) {
+            libssh2_channel_free(channel);
+            setError(QStringLiteral("Cancelled"));
+            return false;
+        }
+        const qint64 n = in.read(buffer, sizeof(buffer));
+        if (n < 0) {
+            libssh2_channel_free(channel);
+            setError(QStringLiteral("Read failed: %1").arg(localPath));
+            return false;
+        }
+        if (n == 0)
+            break; // local EOF
+        // The channel is blocking, but a large write may still be partial.
+        qint64 off = 0;
+        while (off < n) {
+            const ssize_t w =
+                libssh2_channel_write(channel, buffer + off, static_cast<size_t>(n - off));
+            if (w < 0) {
+                libssh2_channel_free(channel);
+                setError(QStringLiteral("Channel write failed (%1)").arg(w));
+                return false;
+            }
+            off += w;
+        }
+        done += static_cast<quint64>(n);
+        if (progress)
+            progress(done, total);
+    }
+    in.close();
+    libssh2_channel_send_eof(channel);
+    libssh2_channel_wait_eof(channel);
+    libssh2_channel_wait_closed(channel);
+    const int status = libssh2_channel_get_exit_status(channel);
+    if (exitCode)
+        *exitCode = status;
+    libssh2_channel_free(channel);
+    if (status != 0)
+        setError(QStringLiteral("Remote command exited with status %1").arg(status));
+    return status == 0;
+}
+
 bool SftpFileEngine::setModifiedTime(const QString &remotePath, qint64 secsSinceEpoch)
 {
     auto *sftp = static_cast<LIBSSH2_SFTP *>(m_sftp);

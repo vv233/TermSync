@@ -18,7 +18,7 @@ class QToolButton;
 
 namespace termsync::ui {
 
-// SecureFX-style dual-pane file browser: local files on the left, remote SFTP
+// Classic dual-pane file browser: local files on the left, remote files
 // on the right, with a transfer-queue panel below. Transfers run off the UI
 // thread via transfer::SftpSession.
 class DualPaneBrowser : public QWidget

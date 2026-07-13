@@ -1,5 +1,8 @@
 #include "transfer_view/ExplorerSftpBrowser.h"
 
+#include "common/Icons.h"
+#include "transfer_view/WinDragOut.h"
+
 #include <QActionGroup>
 #include <QApplication>
 #include <QClipboard>
@@ -29,6 +32,7 @@
 #include <QPushButton>
 #include <QRandomGenerator>
 #include <QShortcut>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStandardPaths>
@@ -89,6 +93,21 @@ protected:
     }
 };
 
+// Same drag-out hook for the icon/list view.
+class DragList : public QListWidget
+{
+public:
+    using QListWidget::QListWidget;
+    std::function<void()> onStartDrag;
+
+protected:
+    void startDrag(Qt::DropActions) override
+    {
+        if (onStartDrag)
+            onStartDrag();
+    }
+};
+
 } // namespace
 
 ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params,
@@ -99,6 +118,8 @@ ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params
     m_session = new transfer::SftpSession(params, expectedFingerprint, protocol, this);
     connect(m_session, &transfer::SftpSession::connected, this,
             &ExplorerSftpBrowser::onConnected);
+    connect(m_session, &transfer::SftpSession::osDetected, this,
+            &ExplorerSftpBrowser::osDetected);
     connect(m_session, &transfer::SftpSession::hostKeyFingerprint, this,
             &ExplorerSftpBrowser::hostKeyFingerprintReceived);
     connect(m_session, &transfer::SftpSession::connectionFailed, this,
@@ -117,6 +138,8 @@ ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params
             &ExplorerSftpBrowser::onTransferFinished);
     connect(m_session, &transfer::SftpSession::syncListingReady, this,
             &ExplorerSftpBrowser::onSyncListingReady);
+    connect(m_session, &transfer::SftpSession::sudoModeChanged, this,
+            &ExplorerSftpBrowser::onSudoModeChanged);
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
@@ -175,17 +198,18 @@ QWidget *ExplorerSftpBrowser::buildNavBar()
     row->setContentsMargins(8, 6, 8, 6);
     row->setSpacing(4);
 
-    auto navButton = [&](QStyle::StandardPixmap sp, const QString &tip) {
+    auto navButton = [&](Glyph glyph, const QString &tip) {
         auto *b = new QToolButton(bar);
-        b->setIcon(style()->standardIcon(sp));
+        b->setIcon(lineIcon(glyph));
+        b->setIconSize(QSize(18, 18));
         b->setToolTip(tip);
         b->setAutoRaise(true);
         return b;
     };
-    m_back = navButton(QStyle::SP_ArrowBack, tr("Back"));
-    m_forward = navButton(QStyle::SP_ArrowForward, tr("Forward"));
-    m_up = navButton(QStyle::SP_ArrowUp, tr("Up"));
-    auto *refreshBtn = navButton(QStyle::SP_BrowserReload, tr("Refresh"));
+    m_back = navButton(Glyph::Back, tr("Back"));
+    m_forward = navButton(Glyph::Forward, tr("Forward"));
+    m_up = navButton(Glyph::Up, tr("Up"));
+    auto *refreshBtn = navButton(Glyph::Refresh, tr("Refresh"));
     connect(m_back, &QToolButton::clicked, this, &ExplorerSftpBrowser::goBack);
     connect(m_forward, &QToolButton::clicked, this, &ExplorerSftpBrowser::goForward);
     connect(m_up, &QToolButton::clicked, this, &ExplorerSftpBrowser::goUp);
@@ -239,19 +263,20 @@ QWidget *ExplorerSftpBrowser::buildCommandBar()
     row->setContentsMargins(8, 4, 8, 4);
     row->setSpacing(2);
 
-    auto cmd = [&](QStyle::StandardPixmap sp, const QString &text) {
+    auto cmd = [&](Glyph glyph, const QString &text) {
         auto *b = new QToolButton(bar);
-        b->setIcon(style()->standardIcon(sp));
+        b->setIcon(lineIcon(glyph));
+        b->setIconSize(QSize(18, 18));
         b->setText(text);
         b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         b->setAutoRaise(true);
         return b;
     };
-    auto *newFolderBtn = cmd(QStyle::SP_FileDialogNewFolder, tr("New folder"));
-    auto *uploadBtn = cmd(QStyle::SP_ArrowUp, tr("Upload"));
-    m_downloadBtn = cmd(QStyle::SP_ArrowDown, tr("Download"));
-    m_renameBtn = cmd(QStyle::SP_FileDialogDetailedView, tr("Rename"));
-    m_deleteBtn = cmd(QStyle::SP_TrashIcon, tr("Delete"));
+    auto *newFolderBtn = cmd(Glyph::NewFolder, tr("New folder"));
+    auto *uploadBtn = cmd(Glyph::Upload, tr("Upload"));
+    m_downloadBtn = cmd(Glyph::Download, tr("Download"));
+    m_renameBtn = cmd(Glyph::Rename, tr("Rename"));
+    m_deleteBtn = cmd(Glyph::Trash, tr("Delete"));
     connect(newFolderBtn, &QToolButton::clicked, this, &ExplorerSftpBrowser::newFolder);
     connect(uploadBtn, &QToolButton::clicked, this, &ExplorerSftpBrowser::uploadFiles);
     connect(m_downloadBtn, &QToolButton::clicked, this, &ExplorerSftpBrowser::downloadSelected);
@@ -265,11 +290,29 @@ QWidget *ExplorerSftpBrowser::buildCommandBar()
     row->addWidget(sep);
     row->addWidget(m_renameBtn);
     row->addWidget(m_deleteBtn);
+
+    auto *sudoSep = new QLabel(QStringLiteral("|"), bar);
+    sudoSep->setStyleSheet(QStringLiteral("color:#2a2c3a;"));
+    row->addWidget(sudoSep);
+    m_sudoBtn = new QToolButton(bar);
+    m_sudoBtn->setText(tr("Sudo"));
+    m_sudoBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_sudoBtn->setCheckable(true);
+    m_sudoBtn->setAutoRaise(true);
+    m_sudoBtn->setToolTip(tr("Run operations as root (sudo) to access protected files"));
+    m_sudoBtn->setStyleSheet(QStringLiteral(
+        "QToolButton { padding:5px 10px; border-radius:6px; color:#e6e9f2; }"
+        "QToolButton:hover { background:#2a2c3a; }"
+        "QToolButton:checked { background:#e0af68; color:#101218; font-weight:600; }"));
+    connect(m_sudoBtn, &QToolButton::toggled, this, &ExplorerSftpBrowser::toggleSudo);
+    row->addWidget(m_sudoBtn);
+
     row->addStretch();
 
     // --- Sort menu (排序) ---
     auto *sortBtn = new QToolButton(bar);
-    sortBtn->setIcon(style()->standardIcon(QStyle::SP_ArrowDown));
+    sortBtn->setIcon(lineIcon(Glyph::Sort));
+    sortBtn->setIconSize(QSize(18, 18));
     sortBtn->setText(tr("Sort"));
     sortBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     sortBtn->setPopupMode(QToolButton::InstantPopup);
@@ -303,7 +346,8 @@ QWidget *ExplorerSftpBrowser::buildCommandBar()
 
     // --- View menu (查看) ---
     auto *viewBtn = new QToolButton(bar);
-    viewBtn->setIcon(style()->standardIcon(QStyle::SP_FileDialogListView));
+    viewBtn->setIcon(lineIcon(Glyph::Grid));
+    viewBtn->setIconSize(QSize(18, 18));
     viewBtn->setText(tr("View"));
     viewBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     viewBtn->setPopupMode(QToolButton::InstantPopup);
@@ -339,8 +383,8 @@ QWidget *ExplorerSftpBrowser::buildNavPane()
         "QListWidget::item { padding:7px 10px; border-radius:6px; margin:1px 4px; }"
         "QListWidget::item:hover { background:#23252f; }"
         "QListWidget::item:selected { background:#2dd4bf; color:#101218; }"));
-    const QIcon home = style()->standardIcon(QStyle::SP_DirHomeIcon);
-    const QIcon drive = style()->standardIcon(QStyle::SP_DriveHDIcon);
+    const QIcon home = lineIcon(Glyph::Home);
+    const QIcon drive = lineIcon(Glyph::Drive);
     auto add = [&](const QIcon &ic, const QString &text, const QString &path) {
         auto *it = new QListWidgetItem(ic, text, m_navList);
         it->setData(Qt::UserRole, path);
@@ -401,7 +445,11 @@ QWidget *ExplorerSftpBrowser::buildFileView()
             });
 
     // Icon / list view (large/medium/small icons + list mode).
-    m_iconView = new QListWidget(this);
+    auto *iconList = new DragList(this);
+    iconList->onStartDrag = [this] { startDragOut(); };
+    iconList->setDragEnabled(true);
+    iconList->setDragDropMode(QAbstractItemView::DragOnly);
+    m_iconView = iconList;
     m_iconView->setFrameShape(QFrame::NoFrame);
     m_iconView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_iconView->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -649,6 +697,42 @@ void ExplorerSftpBrowser::refresh()
     requestList(m_path);
 }
 
+void ExplorerSftpBrowser::toggleSudo(bool on)
+{
+    if (!on) {
+        m_session->setSudo(false, QString());
+        return;
+    }
+    bool ok = false;
+    const QString pw = QInputDialog::getText(
+        this, tr("Sudo password"),
+        tr("Enter the sudo password for the remote user:"), QLineEdit::Password,
+        QString(), &ok);
+    if (!ok) {
+        QSignalBlocker block(m_sudoBtn); // user cancelled — revert the toggle
+        m_sudoBtn->setChecked(false);
+        return;
+    }
+    emit statusMessage(tr("Authenticating sudo…"));
+    m_session->setSudo(true, pw);
+}
+
+void ExplorerSftpBrowser::onSudoModeChanged(bool enabled, bool ok,
+                                            const QString &message)
+{
+    {
+        QSignalBlocker block(m_sudoBtn);
+        m_sudoBtn->setChecked(enabled);
+    }
+    if (!ok) {
+        emit statusMessage(tr("Sudo: %1").arg(message));
+        return;
+    }
+    emit statusMessage(enabled ? tr("Sudo mode on — operating as root")
+                               : tr("Sudo mode off"));
+    refresh(); // re-list with the new privilege level
+}
+
 QString ExplorerSftpBrowser::parentOf(const QString &dir) const
 {
     QString p = dir;
@@ -758,14 +842,9 @@ QVector<SftpEntry> ExplorerSftpBrowser::selectedEntries() const
 
 void ExplorerSftpBrowser::onSelectionChanged()
 {
-    const int n = m_table->selectionModel()
-                      ? m_table->selectionModel()->selectedRows().size()
-                      : 0;
-    const bool hasFiles = std::any_of(
-        selectedEntries().begin(), selectedEntries().end(),
-        [](const SftpEntry &e) { return !e.isDirectory; });
+    const int n = selectedEntries().size();
     if (m_downloadBtn)
-        m_downloadBtn->setEnabled(hasFiles);
+        m_downloadBtn->setEnabled(n >= 1); // files and folders are downloadable
     if (m_renameBtn)
         m_renameBtn->setEnabled(n == 1);
     if (m_deleteBtn)
@@ -828,12 +907,8 @@ void ExplorerSftpBrowser::uploadFiles()
 void ExplorerSftpBrowser::downloadSelected()
 {
     const auto entries = selectedEntries();
-    QVector<SftpEntry> files;
-    for (const SftpEntry &e : entries)
-        if (!e.isDirectory)
-            files.append(e);
-    if (files.isEmpty()) {
-        emit statusMessage(tr("Select file(s) to download"));
+    if (entries.isEmpty()) {
+        emit statusMessage(tr("Select item(s) to download"));
         return;
     }
     const QString dir = QFileDialog::getExistingDirectory(
@@ -841,7 +916,13 @@ void ExplorerSftpBrowser::downloadSelected()
         QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
     if (dir.isEmpty())
         return;
-    for (const SftpEntry &e : files) {
+    for (const SftpEntry &e : entries) {
+        if (e.isDirectory) {
+            // A whole folder streams down as one tar bundle (fast for many
+            // small files), extracted into the chosen folder.
+            m_session->enqueueBulkDownload(remoteJoin(m_path, e.name), dir, e.name);
+            continue;
+        }
         TransferItem item;
         item.direction = TransferItem::Download;
         item.displayName = e.name;
@@ -932,14 +1013,10 @@ void ExplorerSftpBrowser::uploadLocalEntry(const QString &localPath,
 {
     const QFileInfo fi(localPath);
     if (fi.isDir()) {
-        // Create the remote folder, then recurse (SftpSession serialises the
-        // mkdir before the child transfers, so ordering is preserved).
-        const QString remoteSub = remoteJoin(remoteDir, fi.fileName());
-        m_session->makeDirectory(remoteSub);
-        const QFileInfoList children =
-            QDir(localPath).entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries);
-        for (const QFileInfo &child : children)
-            uploadLocalEntry(child.absoluteFilePath(), remoteSub);
+        // Bundle the whole folder into one tar stream unpacked on the server —
+        // one transfer instead of a mkdir + N per-file round-trips, and no
+        // UI-thread directory walk (the worker tars it off-thread).
+        m_session->enqueueBulkUpload(localPath, remoteDir, fi.fileName());
     } else if (fi.isFile()) {
         TransferItem item;
         item.direction = TransferItem::Upload;
@@ -961,7 +1038,7 @@ void ExplorerSftpBrowser::pasteFromClipboard()
 }
 
 void ExplorerSftpBrowser::downloadSelectedToTemp(
-    std::function<void(const QStringList &)> onReady)
+    std::function<void(const QStringList &)> onReady, bool showProgress)
 {
     const QVector<SftpEntry> entries = selectedEntries();
     if (entries.isEmpty()) {
@@ -977,20 +1054,22 @@ void ExplorerSftpBrowser::downloadSelectedToTemp(
     QDir().mkpath(base);
 
     m_tempBatch.clear();
+    m_tempBulkDirs.clear();
     m_tempPaths.clear();
     m_tempBaseDir = base;
     m_tempPendingDirs = 0;
+    m_tempBytes = 0;
     m_tempOnReady = std::move(onReady);
 
     for (const SftpEntry &e : entries) {
         const QString top = QDir(base).filePath(e.name);
         m_tempPaths.append(top); // the dragged/copied top-level item
         if (e.isDirectory) {
-            ++m_tempPendingDirs;
-            QDir().mkpath(top);
-            // Recursively enumerate the remote folder; downloads are enqueued in
-            // onSyncListingReady.
-            m_session->requestSyncListing(remoteJoin(m_path, e.name));
+            // One tar bundle per folder, extracted into `base` as `base/name`.
+            const QString remoteDir = remoteJoin(m_path, e.name);
+            const int id = m_session->enqueueBulkDownload(remoteDir, base, e.name);
+            m_tempBatch.insert(id);
+            m_tempBulkDirs.insert(id, remoteDir);
         } else {
             TransferItem item;
             item.direction = TransferItem::Download;
@@ -1001,6 +1080,22 @@ void ExplorerSftpBrowser::downloadSelectedToTemp(
             m_tempBatch.insert(m_session->enqueue(item));
         }
     }
+
+    if (showProgress) {
+        delete m_tempProgress;
+        m_tempProgress = new QProgressDialog(
+            tr("Preparing %n item(s)…", "", int(entries.size())), tr("Cancel"), 0,
+            0, this);
+        m_tempProgress->setWindowTitle(tr("Copying"));
+        m_tempProgress->setWindowModality(Qt::NonModal);
+        m_tempProgress->setMinimumDuration(400); // don't flash for quick copies
+        connect(m_tempProgress, &QProgressDialog::canceled, this, [this] {
+            const QList<int> ids = m_tempBatch.values();
+            for (int id : ids)
+                m_session->cancel(id);
+        });
+    }
+
     emit statusMessage(tr("Preparing %n item(s)…", "", int(entries.size())));
     maybeFinishTemp();
 }
@@ -1038,6 +1133,11 @@ void ExplorerSftpBrowser::maybeFinishTemp()
 {
     if (!m_tempOnReady || m_tempPendingDirs != 0 || !m_tempBatch.isEmpty())
         return;
+    if (m_tempProgress) {
+        m_tempProgress->close();
+        m_tempProgress->deleteLater();
+        m_tempProgress = nullptr;
+    }
     auto cb = std::move(m_tempOnReady);
     m_tempOnReady = nullptr;
     const QStringList paths = m_tempPaths;
@@ -1047,48 +1147,59 @@ void ExplorerSftpBrowser::maybeFinishTemp()
 
 void ExplorerSftpBrowser::copySelectionToClipboard()
 {
-    downloadSelectedToTemp([this](const QStringList &paths) {
-        QList<QUrl> urls;
-        for (const QString &p : paths)
-            urls.append(QUrl::fromLocalFile(p));
-        auto *mime = new QMimeData;
-        mime->setUrls(urls);
-        QApplication::clipboard()->setMimeData(mime);
-        emit statusMessage(
-            tr("Copied %n file(s) — paste into Explorer", "", int(paths.size())));
-    });
+    downloadSelectedToTemp(
+        [this](const QStringList &paths) {
+            if (paths.isEmpty())
+                return; // cancelled
+            QList<QUrl> urls;
+            for (const QString &p : paths)
+                urls.append(QUrl::fromLocalFile(p));
+            auto *mime = new QMimeData;
+            mime->setUrls(urls);
+            QApplication::clipboard()->setMimeData(mime);
+            emit statusMessage(tr("Copied %n item(s) — paste into Explorer", "",
+                                  int(paths.size())));
+        },
+        /*showProgress=*/true);
+}
+
+// Downloads the current selection to a temp folder and blocks (pumping events,
+// with a progress dialog) until the local paths are ready. Safe to call from a
+// drag/drop callback. Returns empty on cancel/failure.
+QStringList ExplorerSftpBrowser::prepareSelectionToTemp()
+{
+    QEventLoop loop;
+    QStringList ready;
+    bool done = false;
+    downloadSelectedToTemp(
+        [&](const QStringList &paths) {
+            ready = paths;
+            done = true;
+            loop.quit();
+        },
+        /*showProgress=*/true);
+    if (!done)
+        loop.exec();
+    return ready;
 }
 
 void ExplorerSftpBrowser::startDragOut()
 {
-    const QVector<SftpEntry> sel = selectedEntries();
-    if (sel.isEmpty())
+    if (selectedEntries().isEmpty())
         return;
 
-    // Download the selection (files and folders) to a temp folder, blocking
-    // (with a cancelable progress dialog) until it is ready — Windows Explorer
-    // needs real files.
-    QEventLoop loop;
-    QStringList ready;
-    bool cancelled = false;
-    QProgressDialog dlg(tr("Preparing %n item(s)…", "", int(sel.size())),
-                        tr("Cancel"), 0, 0, this);
-    dlg.setWindowModality(Qt::WindowModal);
-    dlg.setMinimumDuration(0);
-    connect(&dlg, &QProgressDialog::canceled, &loop, [&] {
-        cancelled = true;
-        loop.quit();
-    });
-    downloadSelectedToTemp([&](const QStringList &paths) {
-        ready = paths;
-        loop.quit();
-    });
-    dlg.show();
-    loop.exec();
-    dlg.close();
-    if (cancelled || ready.isEmpty())
+#ifdef _WIN32
+    // Start the OLE drag *now* so it latches onto the live mouse gesture, and
+    // download the files only when Explorer asks for them (i.e. after the drop).
+    // Downloading up-front — the old approach — lost the gesture and the drag
+    // never left the window.
+    startWindowsFileDrag([this]() -> QStringList { return prepareSelectionToTemp(); });
+#else
+    // Fallback: download first, then a plain Qt drag (works where the drag
+    // machinery doesn't require the files up-front).
+    const QStringList ready = prepareSelectionToTemp();
+    if (ready.isEmpty())
         return;
-
     QList<QUrl> urls;
     for (const QString &p : ready)
         urls.append(QUrl::fromLocalFile(p));
@@ -1097,6 +1208,7 @@ void ExplorerSftpBrowser::startDragOut()
     auto *drag = new QDrag(this);
     drag->setMimeData(mime);
     drag->exec(Qt::CopyAction);
+#endif
 }
 
 void ExplorerSftpBrowser::showContextMenu(const QPoint &pos)
@@ -1154,7 +1266,15 @@ void ExplorerSftpBrowser::onTransferProgress(int id, quint64 done, quint64 total
 {
     if (!m_activeXfers.contains(id))
         return;
-    m_xferBar->setValue(total ? int(done * 100 / total) : 0);
+    if (total == 0) {
+        // Bulk tar streams have no known total — show a busy indicator.
+        m_xferBar->setRange(0, 0);
+    } else {
+        m_xferBar->setRange(0, 100);
+        m_xferBar->setValue(int(done * 100 / total));
+    }
+    if (m_tempProgress && m_tempBatch.contains(id))
+        m_tempProgress->setLabelText(tr("Preparing… %1").arg(humanSize(done)));
 }
 
 void ExplorerSftpBrowser::onTransferFinished(int id, bool ok, const QString &message)
@@ -1163,7 +1283,21 @@ void ExplorerSftpBrowser::onTransferFinished(int id, bool ok, const QString &mes
 
     // "Download to temp" batch for copy-out / drag-out to Windows Explorer.
     if (m_tempBatch.remove(id)) {
-        maybeFinishTemp();
+        const bool userCancelled = message.contains(QStringLiteral("cancel"),
+                                                    Qt::CaseInsensitive);
+        if (!ok && !userCancelled && m_tempBulkDirs.contains(id)) {
+            // The remote likely lacks `tar`: fall back to a per-file recursive
+            // download so the copy still succeeds (slower, but reliable).
+            const QString remoteDir = m_tempBulkDirs.take(id);
+            QDir().mkpath(QDir(m_tempBaseDir)
+                              .filePath(remoteDir.section(
+                                  '/', -1, -1, QString::SectionSkipEmpty)));
+            ++m_tempPendingDirs;
+            m_session->requestSyncListing(remoteDir);
+        } else {
+            m_tempBulkDirs.remove(id);
+            maybeFinishTemp();
+        }
         if (m_activeXfers.isEmpty()) {
             m_xferBar->setVisible(false);
             m_xferLabel->clear();

@@ -1,10 +1,15 @@
 # UI module: main window shell, dialogs, terminal/transfer views.
 
 add_library(termsync_ui STATIC
+    common/Icons.h
+    common/Icons.cpp
+    mainwindow/ChromeTabWidget.h
     mainwindow/MainWindow.h
     mainwindow/MainWindow.cpp
     home/HostsHomeWidget.h
     home/HostsHomeWidget.cpp
+    quick_commands/QuickCommandsWidget.h
+    quick_commands/QuickCommandsWidget.cpp
     session_dialogs/QuickConnectDialog.h
     session_dialogs/QuickConnectDialog.cpp
     session_dialogs/KeywordHighlightDialog.h
@@ -25,6 +30,8 @@ add_library(termsync_ui STATIC
     transfer_view/DualPaneBrowser.cpp
     transfer_view/ExplorerSftpBrowser.h
     transfer_view/ExplorerSftpBrowser.cpp
+    transfer_view/WinDragOut.h
+    transfer_view/WinDragOut.cpp
     transfer_view/SynchronizeDialog.h
     transfer_view/SynchronizeDialog.cpp
     script/TerminalScriptContext.h
@@ -44,3 +51,8 @@ target_link_libraries(termsync_ui
         termsync_transfer
         termsync_script
 )
+
+if(WIN32)
+    # Native drag-out to Explorer (OLE DoDragDrop / IDataObject) + dark title bar.
+    target_link_libraries(termsync_ui PRIVATE ole32 shell32 dwmapi)
+endif()
