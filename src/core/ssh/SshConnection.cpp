@@ -456,7 +456,43 @@ private:
         struct AgentGuard {
             LIBSSH2_AGENT *a;
             ~AgentGuard() { libssh2_agent_disconnect(a); libssh2_agent_free(a); }
-        } guard{agentÁm≠¢Gß≤⁄Óù∆≠y–   bool authKeyboardInteractive()
+        } guard{agent};
+
+        if (libssh2_agent_connect(agent) != 0)
+            return false;
+        if (libssh2_agent_list_identities(agent) != 0)
+            return false;
+
+        struct libssh2_agent_publickey *identity = nullptr;
+        for (;;) {
+            const int rc = libssh2_agent_get_identity(agent, &identity,
+                                                      identity /*prev*/);
+            if (rc != 0) // 1 = end of list, <0 = error
+                return false;
+            if (libssh2_agent_userauth(agent, user.constData(), identity) == 0)
+                return true; // authenticated with this identity
+        }
+    }
+
+    // Answers keyboard-interactive prompts with the stored password. This
+    // covers single-prompt "password" setups; true multi-prompt OTP with a
+    // live dialog is a follow-up.
+    static void kbdCallback(const char *, int, const char *, int,
+                            int num_prompts,
+                            const LIBSSH2_USERAUTH_KBDINT_PROMPT *,
+                            LIBSSH2_USERAUTH_KBDINT_RESPONSE *responses,
+                            void **abstract)
+    {
+        auto *self = static_cast<SshWorker *>(*abstract);
+        const QByteArray pass = self->m_params.password.toUtf8();
+        for (int i = 0; i < num_prompts; ++i) {
+            responses[i].text = static_cast<char *>(malloc(pass.size()));
+            memcpy(responses[i].text, pass.constData(), pass.size());
+            responses[i].length = static_cast<unsigned int>(pass.size());
+        }
+    }
+
+    bool authKeyboardInteractive()
     {
         const QByteArray user = m_params.username.toUtf8();
         *libssh2_session_abstract(m_session) = this;
