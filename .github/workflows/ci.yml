@@ -13,7 +13,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # macOS is excluded: the aqt Qt 6.8 build links `-framework AGL`, which
+        # was removed from the modern macOS SDK, so the app fails to link on the
+        # runners. The app is also Windows/Linux-focused. Re-add once a Qt/SDK
+        # combo without the AGL reference is available.
+        os: [ubuntu-latest, windows-latest]
 
     env:
       # Cache vcpkg-built packages in the GitHub Actions cache so dependencies
@@ -35,10 +39,6 @@ jobs:
       - name: Install build tools (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool pkg-config
-
-      - name: Install build tools (macOS)
-        if: runner.os == 'macOS'
-        run: brew install autoconf automake libtool pkg-config
 
       - name: Install CMake + Ninja
         uses: lukka/get-cmake@latest
