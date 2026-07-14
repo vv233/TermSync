@@ -19,6 +19,12 @@ inline const char *kAuthProtocol() { return "MIT-MAGIC-COOKIE-1"; }
 QByteArray generateCookie();
 QString cookieToHex(const QByteArray &cookie);
 
+// Builds a minimal Xauthority file containing a wildcard
+// MIT-MAGIC-COOKIE-1 entry for `display`. The wildcard family lets a local
+// X server authenticate IPv4 and IPv6 loopback clients without disabling
+// access control.
+QByteArray makeXauthority(int display, const QByteArray &cookie);
+
 // Reads the real MIT-MAGIC-COOKIE-1 for display number `display` from an
 // Xauthority file (defaults to $XAUTHORITY, else ~/.Xauthority). Returns an
 // empty array if the file/entry is absent (e.g. an access-control-disabled X

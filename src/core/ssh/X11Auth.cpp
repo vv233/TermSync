@@ -25,6 +25,18 @@ uint16_t readXauthU16(const QByteArray &b, int off)
                     static_cast<uint8_t>(b[off + 1]));
 }
 
+void appendXauthU16(QByteArray &b, int value)
+{
+    b.append(char((value >> 8) & 0xff));
+    b.append(char(value & 0xff));
+}
+
+void appendXauthField(QByteArray &b, const QByteArray &value)
+{
+    appendXauthU16(b, value.size());
+    b.append(value);
+}
+
 } // namespace
 
 QByteArray generateCookie()
@@ -38,6 +50,20 @@ QByteArray generateCookie()
 QString cookieToHex(const QByteArray &cookie)
 {
     return QString::fromLatin1(cookie.toHex());
+}
+
+QByteArray makeXauthority(int display, const QByteArray &cookie)
+{
+    if (display < 0 || display > 65535 || cookie.size() != kCookieBytes)
+        return {};
+
+    QByteArray blob;
+    appendXauthU16(blob, 0xffff); // FamilyWild
+    appendXauthField(blob, {});  // address
+    appendXauthField(blob, QByteArray::number(display));
+    appendXauthField(blob, QByteArray(kAuthProtocol()));
+    appendXauthField(blob, cookie);
+    return blob;
 }
 
 QByteArray parseXauthority(const QByteArray &blob, int display)

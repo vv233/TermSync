@@ -1,9 +1,13 @@
 #include "ssh/SshConnection.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QMutex>
+#include <QProcess>
+#include <QSaveFile>
 #include <QSocketNotifier>
+#include <QStandardPaths>
 #include <QTcpSocket>
 #include <QThread>
 #include <QTimer>
@@ -67,6 +71,54 @@ void closeSocket(socket_t s)
 #endif
 }
 
+#ifdef _WIN32
+QString findVcXsrv()
+{
+    const QString configured = qEnvironmentVariable("TERMSYNC_XSERVER");
+    if (!configured.isEmpty() && QFileInfo::exists(configured))
+        return configured;
+
+    QStringList roots{qEnvironmentVariable("ProgramW6432"),
+                      qEnvironmentVariable("ProgramFiles"),
+                      qEnvironmentVariable("ProgramFiles(x86)")};
+    roots.removeAll(QString());
+    roots.removeDuplicates();
+    for (const QString &root : roots) {
+        const QString candidate = QDir(root).filePath("VcXsrv/vcxsrv.exe");
+        if (QFileInfo::exists(candidate))
+            return candidate;
+    }
+    return QStandardPaths::findExecutable(QStringLiteral("vcxsrv.exe"));
+}
+
+QString managedXauthorityPath()
+{
+    const QString base = QStandardPaths::writableLocation(
+        QStandardPaths::AppLocalDataLocation);
+    return QDir(base).filePath(QStringLiteral("x11/Xauthority"));
+}
+
+bool x11PortReady(const QString &host, quint16 port, int timeoutMs = 250)
+{
+    QTcpSocket socket;
+    socket.connectToHost(host, port);
+    return socket.waitForConnected(timeoutMs);
+}
+
+bool writeXauthority(const QString &path, int display, const QByteArray &cookie)
+{
+    if (!QDir().mkpath(QFileInfo(path).absolutePath()))
+        return false;
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    const QByteArray blob = x11::makeXauthority(display, cookie);
+    if (blob.isEmpty() || file.write(blob) != blob.size())
+        return false;
+    return file.commit();
+}
+#endif
+
 // libssh2 invokes this when the remote opens a forwarded X11 connection; it
 // dispatches to the SshWorker stored in the session abstract (defined below).
 LIBSSH2_X11_OPEN_FUNC(x11OpenTrampoline);
@@ -89,6 +141,8 @@ public slots:
     {
         ensureGlobalInit();
         m_params = params;
+        m_setupError.clear();
+        m_reportedClose = false;
 
         if (!openSocket()) {
             emit errorOccurred(tr("Could not connect to %1:%2")
@@ -137,7 +191,9 @@ public slots:
         }
 
         if (!openShell()) {
-            emit errorOccurred(tr("Failed to open shell channel"));
+            emit errorOccurred(m_setupError.isEmpty()
+                                   ? tr("Failed to open shell channel")
+                                   : m_setupError);
             teardown();
             return;
         }
@@ -400,43 +456,7 @@ private:
         struct AgentGuard {
             LIBSSH2_AGENT *a;
             ~AgentGuard() { libssh2_agent_disconnect(a); libssh2_agent_free(a); }
-        } guard{agent};
-
-        if (libssh2_agent_connect(agent) != 0)
-            return false;
-        if (libssh2_agent_list_identities(agent) != 0)
-            return false;
-
-        struct libssh2_agent_publickey *identity = nullptr;
-        for (;;) {
-            const int rc = libssh2_agent_get_identity(agent, &identity,
-                                                      identity /*prev*/);
-            if (rc != 0) // 1 = end of list, <0 = error
-                return false;
-            if (libssh2_agent_userauth(agent, user.constData(), identity) == 0)
-                return true; // authenticated with this identity
-        }
-    }
-
-    // Answers keyboard-interactive prompts with the stored password. This
-    // covers single-prompt "password" setups; true multi-prompt OTP with a
-    // live dialog is a follow-up.
-    static void kbdCallback(const char *, int, const char *, int,
-                            int num_prompts,
-                            const LIBSSH2_USERAUTH_KBDINT_PROMPT *,
-                            LIBSSH2_USERAUTH_KBDINT_RESPONSE *responses,
-                            void **abstract)
-    {
-        auto *self = static_cast<SshWorker *>(*abstract);
-        const QByteArray pass = self->m_params.password.toUtf8();
-        for (int i = 0; i < num_prompts; ++i) {
-            responses[i].text = static_cast<char *>(malloc(pass.size()));
-            memcpy(responses[i].text, pass.constData(), pass.size());
-            responses[i].length = static_cast<unsigned int>(pass.size());
-        }
-    }
-
-    bool authKeyboardInteractive()
+        } guard{agentÁm≠¢Gß≤⁄Óù∆≠y–   bool authKeyboardInteractive()
     {
         const QByteArray user = m_params.username.toUtf8();
         *libssh2_session_abstract(m_session) = this;
@@ -456,8 +476,8 @@ private:
         }
         // X11 forwarding must be requested BEFORE the shell starts so the server
         // sets DISPLAY in the shell's environment.
-        if (m_params.x11Forwarding)
-            requestX11();
+        if (m_params.x11Forwarding && !requestX11())
+            return false;
 
         if (libssh2_channel_shell(m_channel))
             return false;
@@ -466,10 +486,61 @@ private:
 
     // Requests X11 forwarding on the shell channel with a freshly-minted proxy
     // cookie, and arms the callback that accepts forwarded X11 channels.
-    void requestX11()
+    bool requestX11()
     {
         m_proxyCookie = x11::generateCookie();
         m_localCookie = x11::readLocalCookie(m_params.x11Display);
+#ifdef _WIN32
+        const bool localHost = m_params.x11Host.compare(QStringLiteral("localhost"),
+                                                        Qt::CaseInsensitive) == 0
+                            || m_params.x11Host == QStringLiteral("127.0.0.1")
+                            || m_params.x11Host == QStringLiteral("::1");
+        if (localHost) {
+            static QMutex serverMutex;
+            QMutexLocker locker(&serverMutex);
+            const quint16 port = quint16(6000 + m_params.x11Display);
+            const QString authPath = managedXauthorityPath();
+
+            if (m_localCookie.isEmpty())
+                m_localCookie = x11::readLocalCookie(m_params.x11Display, authPath);
+
+            if (!x11PortReady(m_params.x11Host, port)) {
+                const QString executable = findVcXsrv();
+                if (executable.isEmpty()) {
+                    m_setupError = tr("X11 forwarding requires VcXsrv. Re-run the "
+                                      "TermSync installer and select the VcXsrv component.");
+                    return false;
+                }
+
+                m_localCookie = x11::generateCookie();
+                if (!writeXauthority(authPath, m_params.x11Display, m_localCookie)) {
+                    m_setupError = tr("Could not create the X11 authorization file");
+                    return false;
+                }
+
+                const QStringList arguments{
+                    QStringLiteral(":%1").arg(m_params.x11Display),
+                    QStringLiteral("-multiwindow"), QStringLiteral("-clipboard"),
+                    QStringLiteral("-auth"), QDir::toNativeSeparators(authPath),
+                    QStringLiteral("-listen"), QStringLiteral("tcp")};
+                if (!QProcess::startDetached(executable, arguments)) {
+                    m_setupError = tr("Could not start VcXsrv for X11 forwarding");
+                    return false;
+                }
+
+                bool ready = false;
+                for (int attempt = 0; attempt < 30 && !ready; ++attempt) {
+                    QThread::msleep(100);
+                    ready = x11PortReady(m_params.x11Host, port);
+                }
+                if (!ready) {
+                    m_setupError = tr("VcXsrv started but did not open X11 display :%1")
+                                       .arg(m_params.x11Display);
+                    return false;
+                }
+            }
+        }
+#endif
         *libssh2_session_abstract(m_session) = this;
 #if defined(LIBSSH2_VERSION_NUM) && LIBSSH2_VERSION_NUM >= 0x010b01
         // libssh2_session_callback_set() was deprecated in 1.11.1 for the typed
@@ -484,8 +555,14 @@ private:
         const QByteArray hex = x11::cookieToHex(m_proxyCookie).toLatin1();
         // single_connection = 0: allow multiple X11 clients; screen 0. The local
         // display only selects the X-server socket port (6000 + x11Display).
-        libssh2_channel_x11_req_ex(m_channel, 0, x11::kAuthProtocol(),
-                                   hex.constData(), 0);
+        const int rc = libssh2_channel_x11_req_ex(m_channel, 0,
+                                                  x11::kAuthProtocol(),
+                                                  hex.constData(), 0);
+        if (rc != 0) {
+            m_setupError = tr("The SSH server rejected X11 forwarding (%1)").arg(rc);
+            return false;
+        }
+        return true;
     }
 
 public:
@@ -684,6 +761,7 @@ private:
     QTimer *m_pump = nullptr;
     QSocketNotifier *m_readNotifier = nullptr;
     bool m_reportedClose = false;
+    QString m_setupError;
 
     // X11 forwarding state.
     QByteArray m_proxyCookie; // cookie we handed the remote

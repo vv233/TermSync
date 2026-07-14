@@ -46,6 +46,11 @@ powershell -File scripts/make-release.ps1
 
 Do not distribute executables from `build/`; those are development intermediates.
 
+The Windows installer offers VcXsrv as a default optional component. It is
+installed from the verified WinGet package when selected. When X11 forwarding
+is enabled, TermSync starts VcXsrv on demand with a generated Xauthority cookie;
+it does not disable X11 access control with `-ac`.
+
 ## Technology
 
 | Area | Library |

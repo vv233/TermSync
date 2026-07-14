@@ -151,6 +151,15 @@ TEST(X11Auth, XauthorityExactDisplayMatch)
     EXPECT_EQ(parseXauthority(blob, 0), cookieA());
 }
 
+TEST(X11Auth, XauthorityGenerationRoundTrips)
+{
+    const QByteArray blob = makeXauthority(3, cookieA());
+    ASSERT_FALSE(blob.isEmpty());
+    EXPECT_EQ(parseXauthority(blob, 3), cookieA());
+    EXPECT_TRUE(makeXauthority(-1, cookieA()).isEmpty());
+    EXPECT_TRUE(makeXauthority(0, QByteArray("short")).isEmpty());
+}
+
 TEST(X11Auth, XauthorityFallsBackToAnyCookie)
 {
     QByteArray blob = makeXauthEntry(256, "host", "0", kAuthProtocol(), cookieA());

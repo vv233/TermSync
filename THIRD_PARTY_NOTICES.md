@@ -13,6 +13,7 @@ the following third-party components, each under its own license:
 | [SQLite](https://sqlite.org/) | Profile store (via Qt Sql QSQLITE) | Public domain |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON (profile import/export) | MIT |
 | [GoogleTest](https://github.com/google/googletest) | Unit tests (not shipped) | BSD-3-Clause |
+| [VcXsrv](https://github.com/marchaesen/vcxsrv) | Optional Windows X11 server, installed separately through WinGet | GPL-3.0 |
 
 ## Qt / LGPL note
 
@@ -23,3 +24,7 @@ available from https://www.qt.io/.
 
 Full license texts for each component are available at the URLs above and are
 available from their respective projects.
+
+VcXsrv is not bundled in the TermSync installer. If the optional installer
+component is selected, WinGet downloads and installs VcXsrv directly from its
+verified upstream package.

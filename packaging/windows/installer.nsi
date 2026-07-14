@@ -28,6 +28,7 @@ SetCompressor /SOLID lzma
 !define MUI_FINISHPAGE_RUN "$INSTDIR\termsync.exe"
 
 !insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -58,6 +59,28 @@ Section "TermSync (required)" SecMain
   WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" "$INSTDIR\Uninstall.exe"
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
+SectionEnd
+
+Section "VcXsrv X server (recommended for X11 forwarding)" SecX11
+  ; Install through WinGet so VcXsrv is downloaded from its verified upstream
+  ; manifest instead of redistributing a third-party GPL binary in TermSync.
+  IfFileExists "$PROGRAMFILES64\VcXsrv\vcxsrv.exe" x11_done
+  IfFileExists "$PROGRAMFILES\VcXsrv\vcxsrv.exe" x11_done
+
+  DetailPrint "Installing VcXsrv for SSH X11 forwarding..."
+  StrCpy $0 "$LOCALAPPDATA\Microsoft\WindowsApps\winget.exe"
+  IfFileExists "$0" x11_install 0
+  StrCpy $0 "winget.exe"
+
+x11_install:
+  nsExec::ExecToStack '"$0" install --id marha.VcXsrv --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity'
+  Pop $1
+  Pop $2
+  StrCmp $1 "0" x11_done
+  MessageBox MB_OK|MB_ICONEXCLAMATION \
+    "VcXsrv could not be installed automatically (exit code $1). TermSync was installed successfully, but X11 forwarding requires VcXsrv. You can install it later with: winget install --id marha.VcXsrv --exact"
+
+x11_done:
 SectionEnd
 
 Section "Uninstall"
