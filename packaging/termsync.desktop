@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TermSync
+GenericName=SSH/SFTP Client
+Comment=SSH terminal + SFTP/FTP client
+Exec=termsync
+Icon=termsync
+Categories=Network;RemoteAccess;Utility;
+Terminal=false

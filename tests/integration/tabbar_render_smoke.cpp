@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
     mw->show();
     // Optional 2nd arg: dump the app icon at 128px for a visual check.
     if (argc > 2)
-        termsync::ui::appIcon().pixmap(128, 128).save(argv[2]);
+        termsync::ui::appIcon().pixmap(256, 256).save(argv[2]);
     QTimer::singleShot(500, [&] {
         std::fprintf(stderr, mw->grab().save(argv[1]) ? "[saved]\n" : "[fail]\n");
         QCoreApplication::quit();
