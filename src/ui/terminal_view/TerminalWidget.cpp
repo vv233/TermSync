@@ -725,12 +725,30 @@ void TerminalWidget::mouseMoveEvent(QMouseEvent *event)
 
 void TerminalWidget::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton)
+    if (event->button() == Qt::LeftButton) {
+        // Use the release position as the final caret even when the platform did
+        // not deliver a last mouse-move event. SecureCRT-style selection copies
+        // immediately, so no separate Ctrl+C is required.
+        m_selCaret = cellAtPixel(event->pos());
+        m_hasSelection = (m_selCaret != m_selAnchor);
         m_selecting = false;
+        if (m_hasSelection)
+            copySelectionToClipboard();
+        update();
+    }
 }
 
 void TerminalWidget::contextMenuEvent(QContextMenuEvent *event)
 {
+    // A plain mouse right-click pastes immediately. Keep the context menu
+    // available from the keyboard Menu key and from Shift+right-click.
+    if (event->reason() == QContextMenuEvent::Mouse
+        && !(event->modifiers() & Qt::ShiftModifier)) {
+        pasteFromClipboard();
+        event->accept();
+        return;
+    }
+
     QMenu menu(this);
     QAction *copyAct = menu.addAction(tr("Copy"));
     copyAct->setEnabled(hasSelection());
@@ -782,8 +800,13 @@ QString TerminalWidget::selectionText() const
 void TerminalWidget::copySelectionToClipboard()
 {
     const QString text = selectionText();
-    if (!text.isEmpty())
-        QApplication::clipboard()->setText(text);
+    if (text.isEmpty())
+        return;
+
+    QClipboard *clipboard = QApplication::clipboard();
+    clipboard->setText(text, QClipboard::Clipboard);
+    if (clipboard->supportsSelection())
+        clipboard->setText(text, QClipboard::Selection);
 }
 
 void TerminalWidget::pasteFromClipboard()

@@ -24,7 +24,7 @@ class ConnectingOverlay;
 
 // The real terminal view (M3b): renders a ScreenBuffer with QPainter, feeds
 // remote bytes through the VtParser, translates keystrokes back to the shell,
-// supports scrollback, mouse selection + copy/paste, and reports resizes to
+// supports scrollback, select-to-copy + right-click paste, and reports resizes to
 // the remote PTY. Replaces the M2 RawTerminalView.
 class TerminalWidget : public QWidget
 {
