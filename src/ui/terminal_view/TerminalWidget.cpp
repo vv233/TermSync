@@ -25,8 +25,7 @@ constexpr int kHexBufferCap = 128 * 1024;
 
 QFont normalizedTerminalFont(QFont font)
 {
-    QFontDatabase db;
-    const QStringList installedFamilies = db.families();
+    const QStringList installedFamilies = QFontDatabase::families();
     const QStringList preferredFamilies = {
         QStringLiteral("Cascadia Mono"),
         QStringLiteral("Cascadia Code"),
@@ -45,12 +44,12 @@ QFont normalizedTerminalFont(QFont font)
 
     QString family;
     for (const QString &candidate : font.families()) {
-        if (db.isFixedPitch(candidate)) {
+        if (QFontDatabase::isFixedPitch(candidate)) {
             family = candidate;
             break;
         }
     }
-    if (family.isEmpty() && db.isFixedPitch(font.family()))
+    if (family.isEmpty() && QFontDatabase::isFixedPitch(font.family()))
         family = font.family();
     if (family.isEmpty()) {
         for (const QString &candidate : preferredFamilies) {

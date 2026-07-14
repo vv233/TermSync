@@ -471,8 +471,16 @@ private:
         m_proxyCookie = x11::generateCookie();
         m_localCookie = x11::readLocalCookie(m_params.x11Display);
         *libssh2_session_abstract(m_session) = this;
+#if defined(LIBSSH2_VERSION_NUM) && LIBSSH2_VERSION_NUM >= 0x010b01
+        // libssh2_session_callback_set() was deprecated in 1.11.1 for the typed
+        // libssh2_session_callback_set2().
+        libssh2_session_callback_set2(
+            m_session, LIBSSH2_CALLBACK_X11,
+            reinterpret_cast<libssh2_cb_generic *>(&x11OpenTrampoline));
+#else
         libssh2_session_callback_set(m_session, LIBSSH2_CALLBACK_X11,
                                      reinterpret_cast<void *>(&x11OpenTrampoline));
+#endif
         const QByteArray hex = x11::cookieToHex(m_proxyCookie).toLatin1();
         // single_connection = 0: allow multiple X11 clients; screen 0. The local
         // display only selects the X-server socket port (6000 + x11Display).
