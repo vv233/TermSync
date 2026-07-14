@@ -65,7 +65,10 @@ jobs:
         run: |
           choco install nsis -y --no-progress
           $dist = Join-Path (Get-Location) "dist\TermSync"
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DVERSION=${{ github.ref_name }}" "/DDISTDIR=$dist" packaging/windows/installer.nsi
+          $out  = Join-Path (Get-Location) "TermSync-${{ github.ref_name }}-Setup.exe"
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DVERSION=${{ github.ref_name }}" "/DDISTDIR=$dist" "/DOUTFILE=$out" packaging/windows/installer.nsi
+          if (-not (Test-Path $out)) { throw "NSIS installer was not produced at $out" }
+          Get-Item $out | Format-List Name, Length
 
       - uses: actions/upload-artifact@v4
         with:

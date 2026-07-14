@@ -7,13 +7,17 @@
 !ifndef VERSION
   !define VERSION "0.0.0"
 !endif
-; Absolute path to the windeployqt-staged folder, passed via /DDISTDIR=...
+; Absolute paths passed from the workflow so output/inputs are unambiguous
+; regardless of makensis's working directory.
 !ifndef DISTDIR
   !define DISTDIR "dist\TermSync"
 !endif
+!ifndef OUTFILE
+  !define OUTFILE "TermSync-${VERSION}-Setup.exe"
+!endif
 
 Name "TermSync ${VERSION}"
-OutFile "TermSync-${VERSION}-Setup.exe"
+OutFile "${OUTFILE}"
 InstallDir "$PROGRAMFILES64\TermSync"
 InstallDirRegKey HKLM "Software\TermSync" "InstallDir"
 RequestExecutionLevel admin
