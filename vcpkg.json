@@ -5,7 +5,7 @@
   "description": "Open-source SSH terminal + SFTP/FTP client",
   "homepage": "https://github.com/termsync/termsync",
   "license": "MIT",
-  "builtin-baseline": "d87340acc46bdeda386037b38aca30136e667e47",
+  "builtin-baseline": "cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3",
   "dependencies": [
     "libssh2",
     "curl",
