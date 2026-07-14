@@ -7,6 +7,10 @@
 !ifndef VERSION
   !define VERSION "0.0.0"
 !endif
+; Absolute path to the windeployqt-staged folder, passed via /DDISTDIR=...
+!ifndef DISTDIR
+  !define DISTDIR "dist\TermSync"
+!endif
 
 Name "TermSync ${VERSION}"
 OutFile "TermSync-${VERSION}-Setup.exe"
@@ -33,7 +37,7 @@ Section "TermSync (required)" SecMain
   SectionIn RO
   SetOutPath "$INSTDIR"
   ; Everything windeployqt staged (exe + Qt DLLs + plugins).
-  File /r "dist\TermSync\*.*"
+  File /r "${DISTDIR}\*"
 
   CreateShortcut "$SMPROGRAMS\TermSync.lnk" "$INSTDIR\termsync.exe"
   CreateShortcut "$DESKTOP\TermSync.lnk" "$INSTDIR\termsync.exe"

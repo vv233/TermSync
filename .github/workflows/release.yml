@@ -64,7 +64,8 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y --no-progress
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DVERSION=${{ github.ref_name }}" packaging/windows/installer.nsi
+          $dist = Join-Path (Get-Location) "dist\TermSync"
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DVERSION=${{ github.ref_name }}" "/DDISTDIR=$dist" packaging/windows/installer.nsi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -124,6 +125,11 @@ jobs:
           cp build/bin/termsync "$APPDIR/usr/bin/"
           cp packaging/termsync.desktop "$APPDIR/usr/share/applications/"
           cp packaging/termsync.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/"
+
+          # The app only uses the SQLite driver; drop the other Qt sqldrivers so
+          # linuxdeploy doesn't try (and fail) to bundle their client libraries
+          # (e.g. libmimerapi.so for the Mimer driver).
+          find "$QT_ROOT_DIR/plugins/sqldrivers" -name '*.so' ! -name 'libqsqlite.so' -delete || true
 
           base=https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous
           qtbase=https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous
