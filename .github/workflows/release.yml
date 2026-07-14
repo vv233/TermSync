@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-\${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   VCPKG_COMMIT: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3
   QT_VERSION: "6.8.*"
@@ -18,9 +22,9 @@ jobs:
     name: Windows installer
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Enable vcpkg binary cache
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -70,7 +74,7 @@ jobs:
           if (-not (Test-Path $out)) { throw "NSIS installer was not produced at $out" }
           Get-Item $out | Format-List Name, Length
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
@@ -81,9 +85,9 @@ jobs:
     name: Linux AppImage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Enable vcpkg binary cache
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
@@ -146,7 +150,7 @@ jobs:
             --desktop-file "$APPDIR/usr/share/applications/termsync.desktop" \
             --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/termsync.png"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: TermSync-*-x86_64.AppImage
@@ -157,12 +161,32 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - name: Publish
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          tag="$GITHUB_REF_NAME"
+          prerelease=false
+          [[ "$tag" == *-* ]] && prerelease=true
+
+          mapfile -d '' files < <(find artifacts -type f -print0)
+          if ((\${#files[@]} == 0)); then
+            echo "No release assets found"
+            exit 1
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "\${files[@]}" --clobber
+            gh release edit "$tag" --prerelease="$prerelease"
+          else
+            args=(--verify-tag --generate-notes --title "$tag")
+            [[ "$prerelease" == true ]] && args+=(--prerelease)
+            gh release create "$tag" "\${files[@]}" "\${args[@]}"
+          fi
