@@ -31,6 +31,7 @@
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QRandomGenerator>
+#include <QSettings>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QSplitter>
@@ -108,6 +109,37 @@ protected:
     }
 };
 
+// The left navigation pane: accepts a folder dragged from the file view and
+// pins it as a bookmark. Acceptance is driven by an in-progress internal drag
+// (canAccept), so it never touches / triggers the OS download payload.
+class NavList : public QListWidget
+{
+public:
+    using QListWidget::QListWidget;
+    std::function<bool()> canAccept;
+    std::function<void()> onDropPaths;
+
+protected:
+    void dragEnterEvent(QDragEnterEvent *e) override
+    {
+        if (canAccept && canAccept())
+            e->acceptProposedAction();
+    }
+    void dragMoveEvent(QDragMoveEvent *e) override
+    {
+        if (canAccept && canAccept())
+            e->acceptProposedAction();
+    }
+    void dropEvent(QDropEvent *e) override
+    {
+        if (canAccept && canAccept()) {
+            e->acceptProposedAction();
+            if (onDropPaths)
+                onDropPaths();
+        }
+    }
+};
+
 } // namespace
 
 ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params,
@@ -115,6 +147,9 @@ ExplorerSftpBrowser::ExplorerSftpBrowser(const core::SshConnectionParams &params
                                          core::Protocol protocol, QWidget *parent)
     : QWidget(parent)
 {
+    m_bookmarkHost = params.username.isEmpty()
+                         ? params.host
+                         : params.username + QLatin1Char('@') + params.host;
     m_session = new transfer::SftpSession(params, expectedFingerprint, protocol, this);
     connect(m_session, &transfer::SftpSession::connected, this,
             &ExplorerSftpBrowser::onConnected);
@@ -376,8 +411,16 @@ QWidget *ExplorerSftpBrowser::buildCommandBar()
 // ---------------------------------------------------------------------------
 QWidget *ExplorerSftpBrowser::buildNavPane()
 {
-    m_navList = new QListWidget(this);
+    auto *nav = new NavList(this);
+    nav->canAccept = [this] { return !m_dragPaths.isEmpty(); };
+    nav->onDropPaths = [this] {
+        for (const QString &p : m_dragPaths)
+            addBookmark(p);
+    };
+    nav->setAcceptDrops(true);
+    m_navList = nav;
     m_navList->setFrameShape(QFrame::NoFrame);
+    m_navList->setContextMenuPolicy(Qt::CustomContextMenu);
     m_navList->setStyleSheet(QStringLiteral(
         "QListWidget { background:#1a1b26; border-right:1px solid #2a2c3a; }"
         "QListWidget::item { padding:7px 10px; border-radius:6px; margin:1px 4px; }"
@@ -391,9 +434,83 @@ QWidget *ExplorerSftpBrowser::buildNavPane()
     };
     add(home, tr("Home"), QStringLiteral("."));
     add(drive, tr("Root"), QStringLiteral("/"));
+    loadBookmarks();
     connect(m_navList, &QListWidget::itemClicked, this,
             [this](QListWidgetItem *it) { navigateTo(it->data(Qt::UserRole).toString()); });
+    connect(m_navList, &QWidget::customContextMenuRequested, this,
+            &ExplorerSftpBrowser::showNavContextMenu);
     return m_navList;
+}
+
+// Bookmark items carry the path (UserRole) + a "is-bookmark" flag (UserRole+1)
+// so Home/Root are never treated as removable.
+static constexpr int kBookmarkRole = Qt::UserRole + 1;
+
+void ExplorerSftpBrowser::addBookmark(const QString &remotePath)
+{
+    if (remotePath.isEmpty() || remotePath == QStringLiteral(".") ||
+        remotePath == QStringLiteral("/"))
+        return;
+    for (int i = 0; i < m_navList->count(); ++i)
+        if (m_navList->item(i)->data(Qt::UserRole).toString() == remotePath)
+            return; // already pinned
+    const QString label = remotePath.section('/', -1, -1, QString::SectionSkipEmpty);
+    auto *it = new QListWidgetItem(
+        m_folderIcon.isNull() ? lineIcon(Glyph::Folder) : m_folderIcon,
+        label.isEmpty() ? remotePath : label, m_navList);
+    it->setData(Qt::UserRole, remotePath);
+    it->setData(kBookmarkRole, true);
+    it->setToolTip(remotePath);
+    persistBookmarks();
+    emit statusMessage(tr("Pinned %1").arg(remotePath));
+}
+
+void ExplorerSftpBrowser::loadBookmarks()
+{
+    QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    const QStringList paths =
+        settings.value(QStringLiteral("sftp/bookmarks/") + m_bookmarkHost)
+            .toStringList();
+    for (const QString &p : paths) {
+        const QString label = p.section('/', -1, -1, QString::SectionSkipEmpty);
+        auto *it = new QListWidgetItem(lineIcon(Glyph::Folder),
+                                       label.isEmpty() ? p : label, m_navList);
+        it->setData(Qt::UserRole, p);
+        it->setData(kBookmarkRole, true);
+        it->setToolTip(p);
+    }
+}
+
+void ExplorerSftpBrowser::persistBookmarks()
+{
+    QStringList paths;
+    for (int i = 0; i < m_navList->count(); ++i)
+        if (m_navList->item(i)->data(kBookmarkRole).toBool())
+            paths << m_navList->item(i)->data(Qt::UserRole).toString();
+    QSettings settings(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+    settings.setValue(QStringLiteral("sftp/bookmarks/") + m_bookmarkHost, paths);
+}
+
+void ExplorerSftpBrowser::showNavContextMenu(const QPoint &pos)
+{
+    QListWidgetItem *it = m_navList->itemAt(pos);
+    if (!it || !it->data(kBookmarkRole).toBool())
+        return; // only bookmarks have a menu (not Home/Root)
+    QMenu menu(this);
+    menu.addAction(tr("Open"), this,
+                   [this, it] { navigateTo(it->data(Qt::UserRole).toString()); });
+    menu.addAction(tr("Remove bookmark"), this, [this, it] {
+        delete it;
+        persistBookmarks();
+    });
+    menu.exec(m_navList->viewport()->mapToGlobal(pos));
+}
+
+void ExplorerSftpBrowser::pinSelectionToSidebar()
+{
+    for (const SftpEntry &e : selectedEntries())
+        if (e.isDirectory)
+            addBookmark(remoteJoin(m_path, e.name));
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,8 +1302,20 @@ QStringList ExplorerSftpBrowser::prepareSelectionToTemp()
 
 void ExplorerSftpBrowser::startDragOut()
 {
-    if (selectedEntries().isEmpty())
+    const QVector<SftpEntry> sel = selectedEntries();
+    if (sel.isEmpty())
         return;
+
+    // Record the dragged folders so a drop on the nav pane can pin them without
+    // touching the OS drag payload. Cleared when the drag finishes.
+    m_dragPaths.clear();
+    for (const SftpEntry &e : sel)
+        if (e.isDirectory)
+            m_dragPaths << remoteJoin(m_path, e.name);
+    struct Clear {
+        QStringList *p;
+        ~Clear() { p->clear(); }
+    } clearer{&m_dragPaths};
 
 #ifdef _WIN32
     // Start the OLE drag *now* so it latches onto the live mouse gesture, and
@@ -1223,6 +1352,11 @@ void ExplorerSftpBrowser::showContextMenu(const QPoint &pos)
         menu.addAction(tr("Download"), this, &ExplorerSftpBrowser::downloadSelected);
         menu.addAction(tr("Copy"), this,
                        &ExplorerSftpBrowser::copySelectionToClipboard);
+        const bool anyDir = std::any_of(entries.begin(), entries.end(),
+                                        [](const SftpEntry &e) { return e.isDirectory; });
+        if (anyDir)
+            menu.addAction(tr("Pin to sidebar"), this,
+                           &ExplorerSftpBrowser::pinSelectionToSidebar);
         if (entries.size() == 1)
             menu.addAction(tr("Rename"), this, &ExplorerSftpBrowser::renameSelected);
         menu.addAction(tr("Delete"), this, &ExplorerSftpBrowser::deleteSelected);

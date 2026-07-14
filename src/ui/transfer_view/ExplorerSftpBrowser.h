@@ -100,6 +100,15 @@ private:
     void navigateTo(const QString &path, bool pushHistory = true);
     void requestList(const QString &path);
     void populate();
+
+    // Left-pane bookmarks: pin remote folders (by drag onto the pane or the
+    // "Pin to sidebar" context action), persisted per host. Clicking navigates;
+    // right-click removes.
+    void addBookmark(const QString &remotePath);
+    void loadBookmarks();
+    void persistBookmarks();
+    void showNavContextMenu(const QPoint &pos);
+    void pinSelectionToSidebar();
     void rebuildBreadcrumb();
     void updateCommandState();
     QString remoteJoin(const QString &dir, const QString &name) const;
@@ -178,6 +187,12 @@ private:
     // Cached shell icons (by file-type suffix) — QFileIconProvider is slow.
     mutable QHash<QString, QIcon> m_iconCache;
     mutable QIcon m_folderIcon;
+
+    // Left-pane bookmarks. m_bookmarkHost keys the persisted list; m_dragPaths
+    // holds the remote folders of an in-progress internal drag (so a drop on the
+    // nav pane can pin them without touching the OS drag payload).
+    QString m_bookmarkHost;
+    QStringList m_dragPaths;
 
     // Pending "download to temp" batch (for copy-out / drag-out to Explorer).
     // m_tempPaths holds the top-level temp paths (the selected files/folders);

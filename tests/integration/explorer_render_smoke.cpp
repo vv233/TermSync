@@ -4,6 +4,7 @@
 // Usage: explorer_render_smoke <host|demo> <port> <user> <pass> <out.png>
 
 #include <QApplication>
+#include <QSettings>
 #include <QDateTime>
 #include <QTimer>
 #include <cstdio>
@@ -42,6 +43,14 @@ int main(int argc, char *argv[])
     p.port = static_cast<quint16>(QString(argv[2]).toInt());
     p.username = argv[3];
     p.password = argv[4];
+
+    if (host == QStringLiteral("demo")) {
+        // Seed a couple of sidebar bookmarks so the pinned-folders UI renders.
+        QSettings s(QStringLiteral("TermSync"), QStringLiteral("TermSync"));
+        s.setValue(QStringLiteral("sftp/bookmarks/%1@%2").arg(p.username, p.host),
+                   QStringList{QStringLiteral("/var/www/html"),
+                               QStringLiteral("/etc/nginx")});
+    }
 
     auto *w = new termsync::ui::ExplorerSftpBrowser(p, QString());
     w->resize(1040, 620);
