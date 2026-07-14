@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-\${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -168,7 +168,7 @@ jobs:
       - name: Create or update GitHub Release
         shell: bash
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -177,16 +177,16 @@ jobs:
           [[ "$tag" == *-* ]] && prerelease=true
 
           mapfile -d '' files < <(find artifacts -type f -print0)
-          if ((\${#files[@]} == 0)); then
+          if ((${#files[@]} == 0)); then
             echo "No release assets found"
             exit 1
           fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "\${files[@]}" --clobber
+            gh release upload "$tag" "${files[@]}" --clobber
             gh release edit "$tag" --prerelease="$prerelease"
           else
             args=(--verify-tag --generate-notes --title "$tag")
             [[ "$prerelease" == true ]] && args+=(--prerelease)
-            gh release create "$tag" "\${files[@]}" "\${args[@]}"
+            gh release create "$tag" "${files[@]}" "${args[@]}"
           fi
