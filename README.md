@@ -4,7 +4,7 @@ TermSync is an open-source, cross-platform remote operations client built with
 C++17 and Qt 6. It combines tabbed terminal sessions, connection profiles,
 file transfer, synchronization, automation, and a headless CLI in one project.
 
-> **Pre-release:** `0.1.0-pre.1` is intended for validation. Configuration and
+> **Pre-release:** `0.1.0-pre.3` is intended for validation. Configuration and
 > behavior may still change before the first stable release.
 
 ## Current capabilities
@@ -12,6 +12,8 @@ file transfer, synchronization, automation, and a headless CLI in one project.
 - SSH2, Telnet, serial, local shell, TN3270, and first-pass TN5250 sessions
 - VT/xterm terminal rendering, color schemes, logging, keyword highlighting,
   hex view, scripting, port forwarding, X11 forwarding, and proxy support
+- SecureCRT-style terminal clipboard behavior: selecting text copies it
+  immediately, right-click pastes, and Shift+right-click opens the context menu
 - SFTP, FTP, FTPS, and SCP transfer through Explorer-style and dual-pane views
 - Transfer queues, pause/resume, bandwidth limits, reconnect, synchronization,
   bookmarks, native Windows drag-out, tar-stream directory transfer, and sudo mode
