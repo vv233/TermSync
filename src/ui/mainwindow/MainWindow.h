@@ -129,6 +129,12 @@ private:
     void setHexViewForCurrent(bool on);
     void syncHexViewAction();
 
+    // Edit menu (M20 polish): act on the current terminal tab. updateEditActions
+    // greys them out when the active tab is not a terminal.
+    TerminalWidget *currentTerminal() const;
+    void updateEditActions();
+    void toggleFullScreen(bool on);
+
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.
     bool verifyHostKey(const QString &host, quint16 port,
@@ -144,6 +150,14 @@ private:
     HostsHomeWidget *m_home = nullptr;
     QToolBar *m_toolbar = nullptr;
     QAction *m_hexViewAct = nullptr;
+
+    // Edit menu actions kept so their enabled state can track the active tab.
+    QAction *m_copyAct = nullptr;
+    QAction *m_pasteAct = nullptr;
+    QAction *m_selectAllAct = nullptr;
+    QAction *m_clearScreenAct = nullptr;
+    QAction *m_clearScrollbackAct = nullptr;
+    QAction *m_fullScreenAct = nullptr;
 
     std::unique_ptr<core::ProfileStore> m_profileStore;
     std::unique_ptr<core::CredentialStore> m_credentialStore;

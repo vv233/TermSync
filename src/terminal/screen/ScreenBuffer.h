@@ -81,6 +81,9 @@ public:
     // Full hard reset (RIS).
     void reset();
 
+    // Drop the scrollback history, keeping the visible screen intact.
+    void clearScrollback();
+
 private:
     Line blankLine() const;
     Cell blankCell() const;

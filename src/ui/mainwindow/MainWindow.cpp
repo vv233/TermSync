@@ -247,13 +247,37 @@ void MainWindow::createMenus()
 
     // --- Edit ---
     QMenu *editMenu = appMenu->addMenu(tr("&Edit"));
-    placeholder(editMenu, tr("Copy"));
-    placeholder(editMenu, tr("Paste"));
-    placeholder(editMenu, tr("Select All"));
+    m_copyAct = editMenu->addAction(tr("Copy"));
+    m_copyAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
+    connect(m_copyAct, &QAction::triggered, this, [this] {
+        if (auto *t = currentTerminal())
+            t->editCopy();
+    });
+    m_pasteAct = editMenu->addAction(tr("Paste"));
+    m_pasteAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V));
+    connect(m_pasteAct, &QAction::triggered, this, [this] {
+        if (auto *t = currentTerminal())
+            t->editPaste();
+    });
+    m_selectAllAct = editMenu->addAction(tr("Select All"));
+    connect(m_selectAllAct, &QAction::triggered, this, [this] {
+        if (auto *t = currentTerminal())
+            t->editSelectAll();
+    });
     editMenu->addSeparator();
-    placeholder(editMenu, tr("Clear Screen"));
-    placeholder(editMenu, tr("Clear Scrollback"));
+    m_clearScreenAct = editMenu->addAction(tr("Clear Screen"));
+    connect(m_clearScreenAct, &QAction::triggered, this, [this] {
+        if (auto *t = currentTerminal())
+            t->clearScreen();
+    });
+    m_clearScrollbackAct = editMenu->addAction(tr("Clear Scrollback"));
+    connect(m_clearScrollbackAct, &QAction::triggered, this, [this] {
+        if (auto *t = currentTerminal())
+            t->clearScrollback();
+    });
     placeholder(editMenu, tr("Find..."));
+    // Keep the terminal-only actions greyed out unless a terminal tab is active.
+    connect(appMenu, &QMenu::aboutToShow, this, &MainWindow::updateEditActions);
     editMenu->addSeparator();
     QAction *highlightAct = editMenu->addAction(tr("Keyword Highlighting..."));
     connect(highlightAct, &QAction::triggered, this,
@@ -287,7 +311,12 @@ void MainWindow::createMenus()
     connect(m_hexViewAct, &QAction::toggled, this,
             &MainWindow::setHexViewForCurrent);
     viewMenu->addSeparator();
-    placeholder(viewMenu, tr("Full Screen"));
+    m_fullScreenAct = viewMenu->addAction(tr("Full Screen"));
+    m_fullScreenAct->setCheckable(true);
+    m_fullScreenAct->setShortcut(QKeySequence(Qt::Key_F11));
+    connect(m_fullScreenAct, &QAction::toggled, this,
+            &MainWindow::toggleFullScreen);
+    addAction(m_fullScreenAct); // keep the F11 shortcut live with the menu hidden
 
     // --- Options ---
     QMenu *optionsMenu = appMenu->addMenu(tr("&Options"));
@@ -970,6 +999,35 @@ void MainWindow::syncHexViewAction()
     QSignalBlocker block(m_hexViewAct); // don't re-toggle the terminal
     m_hexViewAct->setChecked(terminal && terminal->isHexView());
     m_hexViewAct->setEnabled(terminal != nullptr);
+}
+
+TerminalWidget *MainWindow::currentTerminal() const
+{
+    return qobject_cast<TerminalWidget *>(m_sessionTabs->currentWidget());
+}
+
+void MainWindow::updateEditActions()
+{
+    TerminalWidget *t = currentTerminal();
+    const bool hasTerminal = t != nullptr;
+    if (m_pasteAct)
+        m_pasteAct->setEnabled(hasTerminal);
+    if (m_selectAllAct)
+        m_selectAllAct->setEnabled(hasTerminal);
+    if (m_clearScreenAct)
+        m_clearScreenAct->setEnabled(hasTerminal);
+    if (m_clearScrollbackAct)
+        m_clearScrollbackAct->setEnabled(hasTerminal);
+    if (m_copyAct) // Copy needs an actual selection
+        m_copyAct->setEnabled(hasTerminal && t->hasSelection());
+}
+
+void MainWindow::toggleFullScreen(bool on)
+{
+    if (on)
+        showFullScreen();
+    else
+        showNormal();
 }
 
 void MainWindow::editKeywordHighlighting()

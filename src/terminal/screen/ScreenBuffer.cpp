@@ -416,4 +416,9 @@ void ScreenBuffer::reset()
         l = blankLine();
 }
 
+void ScreenBuffer::clearScrollback()
+{
+    m_scrollback.clear();
+}
+
 } // namespace termsync::terminal

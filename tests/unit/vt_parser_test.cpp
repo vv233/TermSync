@@ -121,6 +121,26 @@ TEST(VtParser, ScrollOnLastLinePushesScrollback)
     EXPECT_EQ(sb.trimmed(), "one");
 }
 
+TEST(ScreenBuffer, ClearScrollbackDropsHistoryKeepsScreen)
+{
+    ScreenBuffer screen{10, 2};
+    VtParser parser{&screen};
+    parser.parse("one\r\ntwo\r\nthree"); // "one" -> scrollback
+    ASSERT_EQ(screen.scrollbackSize(), 1);
+
+    screen.clearScrollback();
+    EXPECT_EQ(screen.scrollbackSize(), 0);
+
+    // The visible screen is untouched.
+    QString row0, row1;
+    for (const Cell &c : screen.line(0))
+        row0 += QChar(static_cast<char16_t>(c.ch));
+    for (const Cell &c : screen.line(1))
+        row1 += QChar(static_cast<char16_t>(c.ch));
+    EXPECT_EQ(row0.trimmed(), "two");
+    EXPECT_EQ(row1.trimmed(), "three");
+}
+
 TEST(VtParser, SgrBoldAndColor)
 {
     Term t;

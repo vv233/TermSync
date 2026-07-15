@@ -823,4 +823,43 @@ void TerminalWidget::pasteFromClipboard()
     scrollToBottom();
 }
 
+void TerminalWidget::editCopy()
+{
+    copySelectionToClipboard();
+}
+
+void TerminalWidget::editPaste()
+{
+    pasteFromClipboard();
+}
+
+void TerminalWidget::editSelectAll()
+{
+    const int rows = totalDocRows();
+    if (rows <= 0)
+        return;
+    const int lastRow = rows - 1;
+    m_selAnchor = QPoint(0, 0);
+    m_selCaret = QPoint(lastRow, docLine(lastRow).size());
+    m_hasSelection = true;
+    update();
+}
+
+void TerminalWidget::clearScreen()
+{
+    m_screen->eraseInDisplay(2); // erase the whole visible screen
+    clearSelection();
+    scrollToBottom();
+    update();
+}
+
+void TerminalWidget::clearScrollback()
+{
+    m_screen->clearScrollback();
+    m_topLine = 0;
+    clearSelection();
+    scrollToBottom();
+    update();
+}
+
 } // namespace termsync::ui

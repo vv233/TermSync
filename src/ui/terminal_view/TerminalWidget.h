@@ -57,6 +57,17 @@ public:
     void sendText(const QByteArray &bytes);
     QString screenPlainText() const;
 
+    // Edit actions (M20 polish): backing for the app's Edit menu. copy/paste
+    // mirror the mouse/keyboard behaviour, selectAll selects the whole document
+    // (screen + scrollback), and the clear operations wipe the visible screen or
+    // the scrollback history. hasSelection() reports whether Copy has anything.
+    void editCopy();
+    void editPaste();
+    void editSelectAll();
+    void clearScreen();
+    void clearScrollback();
+    bool hasSelection() const;
+
     // Session logging (M20b): tee raw received bytes to a file. `pathTemplate`
     // may contain TermSync tokens (%H host, %S session, %Y/%M/%D/%h/%m/%s
     // date-time) which are expanded using the context set by setLogContext().
@@ -118,7 +129,6 @@ private:
     void copySelectionToClipboard();
     void pasteFromClipboard();
     QString selectionText() const;
-    bool hasSelection() const;
     void clearSelection();
 
     void scrollToBottom();
