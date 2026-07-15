@@ -60,6 +60,16 @@ jobs:
           & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --compiler-runtime "$dist/termsync.exe"
           Copy-Item README.md, LICENSE $dist/ -ErrorAction SilentlyContinue
 
+      # Sign the exe before packaging so the copies inside the zip and the
+      # installer are signed too. No-ops (and does not fail) when the signing
+      # secrets are absent — see docs/code-signing.md.
+      - name: Sign application
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: pwsh scripts/sign-windows.ps1 -Path "dist/TermSync/termsync.exe"
+
       - name: Portable zip
         shell: pwsh
         run: Compress-Archive -Path dist/TermSync/* -DestinationPath "TermSync-${{ github.ref_name }}-win64.zip"
@@ -73,6 +83,13 @@ jobs:
           & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" "/DVERSION=${{ github.ref_name }}" "/DDISTDIR=$dist" "/DOUTFILE=$out" packaging/windows/installer.nsi
           if (-not (Test-Path $out)) { throw "NSIS installer was not produced at $out" }
           Get-Item $out | Format-List Name, Length
+
+      - name: Sign installer
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: pwsh scripts/sign-windows.ps1 -Path "TermSync-${{ github.ref_name }}-Setup.exe"
 
       - uses: actions/upload-artifact@v7
         with:

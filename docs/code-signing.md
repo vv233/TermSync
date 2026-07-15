@@ -58,10 +58,13 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 
 ## 3. Wire it into `release.yml`
 
-In the **Windows job**, after `windeployqt` has staged the app but **before** you
-zip it, sign the executable; and after NSIS builds `…-Setup.exe`, sign the
-installer. Both steps read the secrets as env vars — the script no-ops if they
-are empty.
+**This is already wired up.** `release.yml` has a **Sign application** step
+(after `windeployqt`, before packaging) and a **Sign installer** step (after
+NSIS). Both read `WINDOWS_CERTIFICATE` / `WINDOWS_CERTIFICATE_PASSWORD` from
+secrets and no-op if they're empty — so once you add the two secrets above, the
+next tagged release is signed automatically. Nothing else to change.
+
+The steps look like this (for reference):
 
 ```yaml
       - name: Sign application executable
