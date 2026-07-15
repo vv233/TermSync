@@ -11,9 +11,14 @@ C++17 and Qt 6. It combines tabbed terminal sessions, connection profiles,
 file transfer, synchronization, automation, and a headless CLI in one project.
 
 > **Pre-release:** `0.1.0-pre.3` is intended for validation. Configuration and
-> behavior may still change before the first stable release.
+> behavior may still change before the first stable release. See
+> [known limitations](docs/known-limitations.md) for current rough edges.
 
-![TermSync home page](docs/images/home.png)
+![TermSync — Hosts home page with the Quick Commands panel](docs/images/mainwindow.png)
+
+<sub>Terminal session (local shell):</sub>
+
+![TermSync terminal session](docs/images/terminal.png)
 
 ## Download
 
