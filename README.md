@@ -20,6 +20,10 @@ file transfer, synchronization, automation, and a headless CLI in one project.
 
 ![TermSync terminal session](docs/images/terminal.png)
 
+<sub>Dual-pane SFTP transfer with a transfer queue and Synchronize:</sub>
+
+![TermSync dual-pane SFTP browser](docs/images/dualpane.png)
+
 ## Download
 
 Grab the latest build from the [**Releases**](https://github.com/vv233/TermSync/releases) page.
