@@ -24,6 +24,10 @@ file transfer, synchronization, automation, and a headless CLI in one project.
 
 ![TermSync dual-pane SFTP browser](docs/images/dualpane.png)
 
+<sub>Pick a skin — 14 built-in color schemes (Termius, Flexoki, Kanagawa, Everforest, Night Owl, and more):</sub>
+
+![TermSync built-in color schemes](docs/images/themes.png)
+
 ## Download
 
 Grab the latest build from the [**Releases**](https://github.com/vv233/TermSync/releases) page.
