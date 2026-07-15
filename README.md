@@ -1,11 +1,43 @@
 # TermSync
 
+[![CI](https://github.com/vv233/TermSync/actions/workflows/ci.yml/badge.svg)](https://github.com/vv233/TermSync/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/vv233/TermSync?include_prereleases&sort=semver)](https://github.com/vv233/TermSync/releases)
+[![Downloads](https://img.shields.io/github/downloads/vv233/TermSync/total)](https://github.com/vv233/TermSync/releases)
+[![License: MIT](https://img.shields.io/github/license/vv233/TermSync)](LICENSE)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-informational)
+
 TermSync is an open-source, cross-platform remote operations client built with
 C++17 and Qt 6. It combines tabbed terminal sessions, connection profiles,
 file transfer, synchronization, automation, and a headless CLI in one project.
 
 > **Pre-release:** `0.1.0-pre.3` is intended for validation. Configuration and
 > behavior may still change before the first stable release.
+
+<!-- TODO: add a screenshot / GIF of the app here (docs/images/screenshot.png). -->
+
+## Download
+
+Grab the latest build from the [**Releases**](https://github.com/vv233/TermSync/releases) page.
+
+| Platform | File | Run it |
+|---|---|---|
+| **Windows 10/11 (x64)** | `TermSync-<ver>-Setup.exe` (installer) or `TermSync-<ver>-win64.zip` (portable) | Run the installer, or unzip and launch `termsync.exe` |
+| **Linux (x86_64)** | `TermSync-<ver>-x86_64.AppImage` | `chmod +x TermSync-*.AppImage && ./TermSync-*.AppImage` |
+
+> **Windows SmartScreen:** current builds are **not yet code-signed**, so
+> Windows may show an "unrecognized app" prompt — choose **More info → Run
+> anyway**. (Signing is planned; see [docs/code-signing.md](docs/code-signing.md).)
+>
+> **Linux:** the AppImage needs FUSE (`sudo apt install libfuse2` on newer
+> Ubuntu), or run it with `--appimage-extract-and-run`.
+
+## Platform support
+
+| OS | Status |
+|---|---|
+| Windows 10/11 (x64) | ✅ Supported (installer + portable) |
+| Linux (x86_64) | ✅ Supported (AppImage) |
+| macOS | ⛔ Not yet — the Qt 6.8 build references the removed `AGL` framework; will return once a Qt/SDK combo without it is used |
 
 ## Current capabilities
 
@@ -25,6 +57,16 @@ file transfer, synchronization, automation, and a headless CLI in one project.
 See [feature-status.md](docs/feature-status.md) for verified coverage and known
 gaps, and [architecture.md](docs/architecture.md) for the component layout.
 
+## Quick start
+
+1. Launch TermSync — the **Hosts** home page opens.
+2. Type `user@host` (optionally `:port`) in the connect bar and press Enter, or
+   use **File → Quick Connect** to pick a protocol and enter credentials.
+3. Tick **Save session** to keep the host as a card on the home page; the
+   password can be stored in your OS credential vault.
+4. For file transfer, open a saved SSH/SFTP host's file view, then drag between
+   the local and remote panes or use **Synchronize…** for a dry-run preview.
+
 ## Build and test
 
 Prerequisites and platform setup are documented in [building.md](docs/building.md).
@@ -35,7 +77,7 @@ cmake --build --preset default
 ctest --preset default
 ```
 
-The current suite contains 136 automated tests.
+The current suite contains 130+ automated tests.
 
 ## Pre-release packaging
 
@@ -63,7 +105,19 @@ it does not disable X11 access control with `-ac`.
 | Configuration | SQLite and nlohmann/json |
 | Terminal | Project VT parser, screen buffer, and QPainter renderer |
 
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+the build/test workflow and coding conventions, and
+[SECURITY.md](SECURITY.md) to report a vulnerability privately.
+
 ## License
 
 TermSync is licensed under MIT. Third-party components retain their own licenses;
 see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+---
+
+*Not affiliated with or endorsed by VanDyke Software. "SecureCRT" and "SecureFX"
+are trademarks of VanDyke Software, Inc., referenced here only to describe
+feature-compatibility goals.*
