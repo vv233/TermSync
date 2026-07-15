@@ -13,7 +13,7 @@ file transfer, synchronization, automation, and a headless CLI in one project.
 > **Pre-release:** `0.1.0-pre.3` is intended for validation. Configuration and
 > behavior may still change before the first stable release.
 
-<!-- TODO: add a screenshot / GIF of the app here (docs/images/screenshot.png). -->
+![TermSync home page](docs/images/home.png)
 
 ## Download
 
