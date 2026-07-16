@@ -16,6 +16,7 @@
 #include "log/SessionLogger.h"
 #include "terminal_view/ConnectingOverlay.h"
 #include "text/HexView.h"
+#include "text/TextSearch.h"
 
 namespace termsync::ui {
 
@@ -827,6 +828,62 @@ void TerminalWidget::disconnectSession()
 {
     if (m_connection && m_connected)
         m_connection->disconnectFromHost();
+}
+
+void TerminalWidget::ensureRowVisible(int docRow)
+{
+    const int vis = visibleRows();
+    const int maxTop = std::max(0, totalDocRows() - vis);
+    if (docRow < m_topLine)
+        m_topLine = docRow;
+    else if (docRow >= m_topLine + vis)
+        m_topLine = docRow - vis + 1;
+    m_topLine = std::clamp(m_topLine, 0, maxTop);
+    m_followTail = (m_topLine >= maxTop);
+}
+
+bool TerminalWidget::find(const QString &needle, bool forward, bool caseSensitive,
+                          bool fromStart)
+{
+    const int rows = totalDocRows();
+    if (needle.isEmpty() || rows <= 0)
+        return false;
+
+    auto lineText = [this](int r) {
+        QString s;
+        const Line &ln = docLine(r);
+        s.reserve(ln.size());
+        for (const Cell &c : ln)
+            s += QChar(static_cast<char16_t>(c.ch));
+        return s;
+    };
+
+    // Where to begin, relative to the current selection (normalised).
+    int startRow, startCol;
+    if (m_hasSelection && !fromStart) {
+        QPoint a = m_selAnchor, b = m_selCaret;
+        if (a.x() > b.x() || (a.x() == b.x() && a.y() > b.y()))
+            std::swap(a, b);
+        startRow = a.x();
+        startCol = forward ? a.y() + 1 : a.y() - 1;
+    } else {
+        startRow = forward ? 0 : rows - 1;
+        startCol = forward ? 0 : INT_MAX;
+    }
+
+    const terminal::SearchMatch m = terminal::searchDocument(
+        rows, lineText, needle, forward,
+        caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive, startRow,
+        startCol);
+    if (!m.found)
+        return false;
+
+    m_selAnchor = QPoint(m.row, m.col);
+    m_selCaret = QPoint(m.row, m.col + m.length);
+    m_hasSelection = true;
+    ensureRowVisible(m.row);
+    update();
+    return true;
 }
 
 void TerminalWidget::editCopy()

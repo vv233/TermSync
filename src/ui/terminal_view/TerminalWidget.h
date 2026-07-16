@@ -68,6 +68,15 @@ public:
     void clearScrollback();
     bool hasSelection() const;
 
+    // In-terminal search (M20 polish, backs Edit -> Find). Searches the document
+    // (scrollback + screen) for `needle` starting from the current selection,
+    // wrapping once. On a hit it selects the match and scrolls it into view.
+    // Matching is single-line. With fromStart the current selection is ignored
+    // and the scan begins at the top (used for incremental type-ahead search).
+    // Returns true if a match was found.
+    bool find(const QString &needle, bool forward, bool caseSensitive,
+              bool fromStart = false);
+
     // Session lifecycle (M20 polish). isConnected() reflects the live link.
     // disconnectSession() tears it down. The respawn handler, installed by
     // MainWindow at creation, knows how to open an identical session (same
@@ -149,6 +158,7 @@ private:
     void clearSelection();
 
     void scrollToBottom();
+    void ensureRowVisible(int docRow); // adjust m_topLine so docRow is on screen
     void paintHexView(class QPainter &painter); // renders m_hexBuffer as a dump
 
     void initView();       // shared widget setup (font, blink, metrics)

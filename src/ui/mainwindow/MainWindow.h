@@ -20,6 +20,7 @@ class QPoint;
 namespace termsync::ui {
 
 class TerminalWidget;
+class FindBar;
 class HostsHomeWidget;
 
 // The application main window.
@@ -134,6 +135,7 @@ private:
     TerminalWidget *currentTerminal() const;
     void updateEditActions();
     void toggleFullScreen(bool on);
+    void showFindBar();
 
     // Session lifecycle (M20 polish): operate on the current terminal tab.
     void reconnectCurrentSession();
@@ -162,7 +164,9 @@ private:
     QAction *m_selectAllAct = nullptr;
     QAction *m_clearScreenAct = nullptr;
     QAction *m_clearScrollbackAct = nullptr;
+    QAction *m_findAct = nullptr;
     QAction *m_fullScreenAct = nullptr;
+    FindBar *m_findBar = nullptr;
 
     // File menu session-lifecycle actions (enabled only on a terminal tab).
     QAction *m_reconnectAct = nullptr;

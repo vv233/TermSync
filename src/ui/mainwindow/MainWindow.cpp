@@ -59,6 +59,7 @@
 #include "telnet/TelnetConnection.h"
 #include "tn3270/Tn3270Connection.h"
 #include "tn3270/Tn5250Connection.h"
+#include "terminal_view/FindBar.h"
 #include "terminal_view/TerminalWidget.h"
 #include "transfer_view/DualPaneBrowser.h"
 #include "transfer_view/ExplorerSftpBrowser.h"
@@ -281,7 +282,10 @@ void MainWindow::createMenus()
         if (auto *t = currentTerminal())
             t->clearScrollback();
     });
-    placeholder(editMenu, tr("Find..."));
+    m_findAct = editMenu->addAction(tr("Find..."));
+    m_findAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
+    connect(m_findAct, &QAction::triggered, this, &MainWindow::showFindBar);
+    addAction(m_findAct); // keep Ctrl+Shift+F live with the menu hidden
     // Keep the terminal-only actions greyed out unless a terminal tab is active.
     connect(appMenu, &QMenu::aboutToShow, this, &MainWindow::updateEditActions);
     editMenu->addSeparator();
@@ -516,7 +520,33 @@ void MainWindow::createCentralArea()
             });
     connect(m_sessionTabs, &QTabWidget::currentChanged, this,
             [this](int) { syncHexViewAction(); });
-    setCentralWidget(m_sessionTabs);
+
+    // Central area: a hidden Find bar (Edit -> Find) stacked above the tabs.
+    auto *central = new QWidget(this);
+    auto *vbox = new QVBoxLayout(central);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->setSpacing(0);
+    m_findBar = new FindBar(central);
+    m_findBar->hide();
+    vbox->addWidget(m_findBar);
+    vbox->addWidget(m_sessionTabs, 1);
+    setCentralWidget(central);
+
+    connect(m_findBar, &FindBar::incrementalSearch, this,
+            [this](const QString &needle, bool cs) {
+                if (TerminalWidget *t = currentTerminal())
+                    m_findBar->setNotFound(!t->find(needle, true, cs, true));
+            });
+    connect(m_findBar, &FindBar::searchRequested, this,
+            [this](const QString &needle, bool forward, bool cs) {
+                if (TerminalWidget *t = currentTerminal())
+                    m_findBar->setNotFound(!t->find(needle, forward, cs));
+            });
+    connect(m_findBar, &FindBar::closed, this, [this] {
+        m_findBar->hide();
+        if (TerminalWidget *t = currentTerminal())
+            t->setFocus();
+    });
 }
 
 // The "≡" app menu lives in the tab strip's left corner. (A fully custom
@@ -1035,6 +1065,8 @@ void MainWindow::updateEditActions()
         m_clearScrollbackAct->setEnabled(hasTerminal);
     if (m_copyAct) // Copy needs an actual selection
         m_copyAct->setEnabled(hasTerminal && t->hasSelection());
+    if (m_findAct)
+        m_findAct->setEnabled(hasTerminal);
 
     if (m_reconnectAct)
         m_reconnectAct->setEnabled(hasTerminal && t->canRespawn());
@@ -1050,6 +1082,17 @@ void MainWindow::toggleFullScreen(bool on)
         showFullScreen();
     else
         showNormal();
+}
+
+void MainWindow::showFindBar()
+{
+    if (!m_findBar)
+        return;
+    if (!currentTerminal()) {
+        statusBar()->showMessage(tr("Find: open a terminal tab first"), 4000);
+        return;
+    }
+    m_findBar->activate();
 }
 
 void MainWindow::reconnectCurrentSession()

@@ -2,6 +2,9 @@
 
 #include "text/HexView.h"
 #include "text/KeywordHighlighter.h"
+#include "text/TextSearch.h"
+
+#include <QStringList>
 
 using namespace termsync::terminal;
 
@@ -95,4 +98,81 @@ TEST(HexView, WrapsRowsAndTracksOffset)
 TEST(HexView, EmptyInputEmptyOutput)
 {
     EXPECT_TRUE(formatHexDump(QByteArray()).isEmpty());
+}
+
+namespace {
+
+// Document helper: searchDocument over a fixed list of rows.
+SearchMatch findIn(const QStringList &doc, const QString &needle, bool forward,
+                   Qt::CaseSensitivity cs, int startRow, int startCol)
+{
+    return searchDocument(
+        doc.size(), [&doc](int r) { return doc.value(r); }, needle, forward, cs,
+        startRow, startCol);
+}
+
+} // namespace
+
+TEST(TextSearch, ForwardFindsFirstFromTop)
+{
+    const QStringList doc{"alpha bravo", "charlie bravo", "delta"};
+    const SearchMatch m =
+        findIn(doc, "bravo", true, Qt::CaseInsensitive, 0, 0);
+    ASSERT_TRUE(m.found);
+    EXPECT_EQ(m.row, 0);
+    EXPECT_EQ(m.col, 6);
+    EXPECT_EQ(m.length, 5);
+}
+
+TEST(TextSearch, ForwardAdvancesPastCurrentMatch)
+{
+    const QStringList doc{"alpha bravo", "charlie bravo", "delta"};
+    // Starting just past the row-0 match, the next hit is on row 1.
+    const SearchMatch m =
+        findIn(doc, "bravo", true, Qt::CaseInsensitive, 0, 7);
+    ASSERT_TRUE(m.found);
+    EXPECT_EQ(m.row, 1);
+    EXPECT_EQ(m.col, 8);
+}
+
+TEST(TextSearch, ForwardWrapsAround)
+{
+    const QStringList doc{"needle here", "nothing", "more"};
+    // Start past everything on the last row; the only match is back on row 0.
+    const SearchMatch m =
+        findIn(doc, "needle", true, Qt::CaseInsensitive, 2, 100);
+    ASSERT_TRUE(m.found);
+    EXPECT_EQ(m.row, 0);
+    EXPECT_EQ(m.col, 0);
+}
+
+TEST(TextSearch, BackwardFindsPreviousMatch)
+{
+    const QStringList doc{"one two", "two three", "two four"};
+    // From row 2 col 0, the previous "two" is the one on row 1.
+    const SearchMatch m =
+        findIn(doc, "two", false, Qt::CaseInsensitive, 2, -1);
+    ASSERT_TRUE(m.found);
+    EXPECT_EQ(m.row, 1);
+    EXPECT_EQ(m.col, 0);
+}
+
+TEST(TextSearch, CaseSensitivityRespected)
+{
+    const QStringList doc{"Foo foo FOO"};
+    const SearchMatch cs =
+        findIn(doc, "FOO", true, Qt::CaseSensitive, 0, 0);
+    ASSERT_TRUE(cs.found);
+    EXPECT_EQ(cs.col, 8); // only the upper-case FOO
+    const SearchMatch ci =
+        findIn(doc, "FOO", true, Qt::CaseInsensitive, 0, 0);
+    ASSERT_TRUE(ci.found);
+    EXPECT_EQ(ci.col, 0); // first case-insensitive hit
+}
+
+TEST(TextSearch, NoMatchReturnsNotFound)
+{
+    const QStringList doc{"abc", "def"};
+    EXPECT_FALSE(findIn(doc, "xyz", true, Qt::CaseInsensitive, 0, 0).found);
+    EXPECT_FALSE(findIn(doc, "", true, Qt::CaseInsensitive, 0, 0).found);
 }
