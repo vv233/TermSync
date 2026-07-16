@@ -108,6 +108,11 @@ private:
     void loadAppearance();
     void applyAppearance(TerminalWidget *terminal) const;
 
+    // SecureCRT-style Options menu (M20 polish): a categorised per-session
+    // properties editor and an app-wide preferences dialog.
+    void openSessionOptions();
+    void openGlobalOptions();
+
     // TFTP server (M20): open the built-in TFTP server control panel.
     void openTftpServer();
 

@@ -294,6 +294,16 @@ target_link_libraries(appearance_dialog_smoke
         Qt6::Widgets
 )
 
+# Render smoke: the Session Options + Global Options dialogs -> PNGs.
+add_executable(options_dialog_smoke
+    options_dialog_smoke.cpp
+)
+target_link_libraries(options_dialog_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
 # Render smoke (no admin): the TFTP Server control dialog -> PNG.
 add_executable(tftp_dialog_smoke
     tftp_dialog_smoke.cpp

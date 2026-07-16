@@ -52,7 +52,9 @@
 #include "quick_commands/QuickCommandsWidget.h"
 #include "local/LocalShellConnection.h"
 #include "script/TerminalScriptContext.h"
+#include "session_dialogs/GlobalOptionsDialog.h"
 #include "session_dialogs/KeywordHighlightDialog.h"
+#include "session_dialogs/SessionOptionsDialog.h"
 #include "session_dialogs/TerminalAppearanceDialog.h"
 #include "session_dialogs/TftpServerDialog.h"
 #include "store/ConfigTransfer.h"
@@ -336,8 +338,12 @@ void MainWindow::createMenus()
 
     // --- Options ---
     QMenu *optionsMenu = appMenu->addMenu(tr("&Options"));
-    placeholder(optionsMenu, tr("Session Options..."));
-    placeholder(optionsMenu, tr("Global Options..."));
+    QAction *sessionOptionsAct = optionsMenu->addAction(tr("Session Options..."));
+    connect(sessionOptionsAct, &QAction::triggered, this,
+            &MainWindow::openSessionOptions);
+    QAction *globalOptionsAct = optionsMenu->addAction(tr("Global Options..."));
+    connect(globalOptionsAct, &QAction::triggered, this,
+            &MainWindow::openGlobalOptions);
     placeholder(optionsMenu, tr("Edit Default Session..."));
     optionsMenu->addSeparator();
     QAction *appearanceAct = optionsMenu->addAction(tr("Terminal Appearance..."));
@@ -849,6 +855,7 @@ void MainWindow::startSession(const core::ConnectionProfile &profile,
 
     view->setRespawnHandler(
         [this, profile, password] { startSession(profile, password); });
+    view->setProperty("termsyncProfileId", profile.id);
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     view->setLogContext(profile.host, baseTitle);
@@ -913,6 +920,7 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
         view = v;
     }
 
+    view->setProperty("termsyncProfileId", profile.id);
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, tr("%1 Files").arg(baseTitle));
     m_sessionTabs->setCurrentIndex(index);
@@ -940,6 +948,7 @@ void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
     view->setRespawnHandler(
         [this, profile] { startTelnetSession(profile); });
+    view->setProperty("termsyncProfileId", profile.id);
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, baseTitle);
@@ -966,6 +975,7 @@ void MainWindow::startTn3270Session(const core::ConnectionProfile &profile)
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
     view->setRespawnHandler(
         [this, profile] { startTn3270Session(profile); });
+    view->setProperty("termsyncProfileId", profile.id);
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, baseTitle);
@@ -986,6 +996,7 @@ void MainWindow::startTn5250Session(const core::ConnectionProfile &profile)
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
     view->setRespawnHandler(
         [this, profile] { startTn5250Session(profile); });
+    view->setProperty("termsyncProfileId", profile.id);
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, baseTitle);
@@ -1267,6 +1278,7 @@ void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
     view->setRespawnHandler(
         [this, profile] { startSerialSession(profile); });
+    view->setProperty("termsyncProfileId", profile.id);
 
     const QString baseTitle = profile.name.isEmpty() ? sp.portName : profile.name;
     view->setLogContext(sp.portName, baseTitle);
@@ -1341,6 +1353,60 @@ void MainWindow::openTerminalAppearance()
         applyAppearance(current);
     }
     statusBar()->showMessage(tr("Applied theme '%1'").arg(m_terminalScheme), 4000);
+}
+
+void MainWindow::openSessionOptions()
+{
+    // Prefer the profile behind the current tab; fall back to the tree selection.
+    QString id;
+    if (QWidget *w = m_sessionTabs->currentWidget())
+        id = w->property("termsyncProfileId").toString();
+    if (id.isEmpty() && m_sessionTree && m_sessionTree->currentItem())
+        id = m_sessionTree->currentItem()->data(0, kProfileIdRole).toString();
+    if (id.isEmpty()) {
+        statusBar()->showMessage(
+            tr("Session Options: select a saved session first"), 4000);
+        return;
+    }
+
+    const core::ConnectionProfile *found = nullptr;
+    for (const core::ConnectionProfile &p : m_profiles) {
+        if (p.id == id) {
+            found = &p;
+            break;
+        }
+    }
+    if (!found || !m_profileStore) {
+        statusBar()->showMessage(tr("Session Options: profile not found"), 4000);
+        return;
+    }
+
+    SessionOptionsDialog dialog(*found, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    core::ConnectionProfile updated = dialog.toProfile();
+    if (updated.host.isEmpty() || updated.name.isEmpty()) {
+        statusBar()->showMessage(tr("Session Options: name and host are required"),
+                                 4000);
+        return;
+    }
+    if (m_profileStore->upsert(updated)) {
+        if (dialog.passwordChanged() && updated.savePassword && m_credentialStore)
+            m_credentialStore->store(updated.id, dialog.password());
+        loadProfilesIntoTree();
+        statusBar()->showMessage(
+            tr("Updated '%1' (applies to new sessions)").arg(updated.name), 4000);
+    }
+}
+
+void MainWindow::openGlobalOptions()
+{
+    GlobalOptionsDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    dialog.save();
+    loadAppearance(); // refresh the cached defaults for new terminals
+    statusBar()->showMessage(tr("Global options saved"), 4000);
 }
 
 void MainWindow::openTftpServer()

@@ -18,6 +18,10 @@ add_library(termsync_ui STATIC
     session_dialogs/TerminalAppearanceDialog.cpp
     session_dialogs/TftpServerDialog.h
     session_dialogs/TftpServerDialog.cpp
+    session_dialogs/SessionOptionsDialog.h
+    session_dialogs/SessionOptionsDialog.cpp
+    session_dialogs/GlobalOptionsDialog.h
+    session_dialogs/GlobalOptionsDialog.cpp
     terminal_view/RawTerminalView.h
     terminal_view/RawTerminalView.cpp
     terminal_view/TerminalWidget.h
