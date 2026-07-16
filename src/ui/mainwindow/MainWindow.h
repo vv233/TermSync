@@ -21,6 +21,7 @@ namespace termsync::ui {
 
 class TerminalWidget;
 class FindBar;
+class TransferQueueWidget;
 class HostsHomeWidget;
 
 // The application main window.
@@ -57,6 +58,7 @@ private:
     void createToolBar();
     void createSessionManagerDock();
     void createQuickCommandsDock();
+    void createTransferDock();
     void createCentralArea();
     void createStatusBar();
     // Sends a quick-command snippet to the active terminal tab (if any).
@@ -159,6 +161,8 @@ private:
     QToolButton *m_maxButton = nullptr; // its icon toggles maximize/restore
     QDockWidget *m_sessionManagerDock = nullptr;
     QDockWidget *m_quickCommandsDock = nullptr;
+    QDockWidget *m_transferDock = nullptr;
+    TransferQueueWidget *m_transferQueue = nullptr;
     QTreeWidget *m_sessionTree = nullptr;
     HostsHomeWidget *m_home = nullptr;
     QToolBar *m_toolbar = nullptr;

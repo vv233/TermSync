@@ -304,6 +304,17 @@ target_link_libraries(options_dialog_smoke
         Qt6::Widgets
 )
 
+# Render smoke: the global Transfer Queue panel with synthetic progress -> PNG.
+add_executable(transfer_queue_smoke
+    transfer_queue_smoke.cpp
+)
+target_link_libraries(transfer_queue_smoke
+    PRIVATE
+        termsync_ui
+        termsync_transfer
+        Qt6::Widgets
+)
+
 # Render smoke (no admin): the TFTP Server control dialog -> PNG.
 add_executable(tftp_dialog_smoke
     tftp_dialog_smoke.cpp

@@ -41,6 +41,9 @@ public:
                         core::Protocol protocol = core::Protocol::SSH2,
                         QWidget *parent = nullptr);
 
+    // The shared SFTP backend, so a global transfer panel can watch its signals.
+    transfer::SftpSession *session() const { return m_session; }
+
 signals:
     void statusMessage(const QString &message);
     void hostKeyFingerprintReceived(const QString &fingerprint);

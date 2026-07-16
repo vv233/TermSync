@@ -69,6 +69,7 @@
 #include "transfer_view/DualPaneBrowser.h"
 #include "transfer_view/ExplorerSftpBrowser.h"
 #include "transfer_view/SftpBrowserWidget.h"
+#include "transfer_view/TransferQueueWidget.h"
 
 namespace {
 // Role used to stash a profile id on a session-tree leaf item.
@@ -101,6 +102,7 @@ MainWindow::MainWindow(QWidget *parent)
     createToolBar();
     createSessionManagerDock();
     createQuickCommandsDock();
+    createTransferDock();
     createMenus();
     createStatusBar();
 
@@ -318,6 +320,11 @@ void MainWindow::createMenus()
         qc->setText(tr("Quick Commands"));
         viewMenu->addAction(qc);
     }
+    if (m_transferDock) {
+        QAction *tq = m_transferDock->toggleViewAction();
+        tq->setText(tr("Transfers"));
+        viewMenu->addAction(tq);
+    }
     QAction *statusAct = viewMenu->addAction(tr("Status Bar"));
     statusAct->setCheckable(true);
     statusAct->setChecked(true);
@@ -501,6 +508,21 @@ void MainWindow::createQuickCommandsDock()
             &MainWindow::runQuickCommand);
     m_quickCommandsDock->setWidget(panel);
     addDockWidget(Qt::RightDockWidgetArea, m_quickCommandsDock);
+}
+
+void MainWindow::createTransferDock()
+{
+    m_transferDock = new QDockWidget(tr("Transfers"), this);
+    m_transferDock->setObjectName(QStringLiteral("transferDock"));
+    m_transferQueue = new TransferQueueWidget(m_transferDock);
+    m_transferDock->setWidget(m_transferQueue);
+    addDockWidget(Qt::BottomDockWidgetArea, m_transferDock);
+    // Hidden until the first transfer is queued; reveal it then.
+    m_transferDock->hide();
+    connect(m_transferQueue, &TransferQueueWidget::transferActivity, this, [this] {
+        m_transferDock->show();
+        m_transferDock->raise();
+    });
 }
 
 void MainWindow::runQuickCommand(const QString &command, bool execute)
@@ -906,11 +928,13 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
         QStringLiteral("traditional");
 
     QWidget *view = nullptr;
+    transfer::SftpSession *sftpSession = nullptr;
     if (traditional) {
         auto *v = new DualPaneBrowser(params, expectedFp, profile.protocol, this);
         connect(v, &DualPaneBrowser::hostKeyFingerprintReceived, this, onFingerprint);
         connect(v, &DualPaneBrowser::statusMessage, this, onStatus);
         view = v;
+        sftpSession = v->session();
     } else {
         auto *v = new ExplorerSftpBrowser(params, expectedFp, profile.protocol, this);
         connect(v, &ExplorerSftpBrowser::hostKeyFingerprintReceived, this, onFingerprint);
@@ -918,10 +942,13 @@ void MainWindow::startSftpSession(const core::ConnectionProfile &profile,
         connect(v, &ExplorerSftpBrowser::osDetected, this,
                 [this, id = profile.id](const QString &os) { rememberHostOs(id, os); });
         view = v;
+        sftpSession = v->session();
     }
 
     view->setProperty("termsyncProfileId", profile.id);
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
+    if (m_transferQueue && sftpSession)
+        m_transferQueue->attachSession(sftpSession, baseTitle);
     const int index = m_sessionTabs->addTab(view, tr("%1 Files").arg(baseTitle));
     m_sessionTabs->setCurrentIndex(index);
     statusBar()->showMessage(tr("Opening SFTP for %1...").arg(profile.host), 4000);

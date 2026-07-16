@@ -36,6 +36,8 @@ add_library(termsync_ui STATIC
     transfer_view/DualPaneBrowser.cpp
     transfer_view/ExplorerSftpBrowser.h
     transfer_view/ExplorerSftpBrowser.cpp
+    transfer_view/TransferQueueWidget.h
+    transfer_view/TransferQueueWidget.cpp
     transfer_view/WinDragOut.h
     transfer_view/WinDragOut.cpp
     transfer_view/SynchronizeDialog.h
