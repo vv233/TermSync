@@ -41,7 +41,7 @@ option(TERMSYNC_BUILD_TESTS "Build unit tests" ON)
 
 # --- Dependencies ----------------------------------------------------------
 # Qt 6 is located via CMAKE_PREFIX_PATH (see docs/building.md).
-find_package(Qt6 REQUIRED COMPONENTS Widgets Sql Network Qml)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Sql Network Qml PrintSupport)
 
 qt_standard_project_setup()
 

@@ -15,9 +15,12 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPrintDialog>
+#include <QPrinter>
 #include <QSettings>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QTextDocument>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTabBar>
@@ -246,7 +249,10 @@ void MainWindow::createMenus()
     QAction *logSessionAct = fileMenu->addAction(tr("Log Session..."));
     connect(logSessionAct, &QAction::triggered, this,
             &MainWindow::toggleSessionLog);
-    placeholder(fileMenu, tr("Print..."));
+    m_printAct = fileMenu->addAction(tr("Print..."));
+    m_printAct->setShortcut(QKeySequence::Print);
+    connect(m_printAct, &QAction::triggered, this,
+            &MainWindow::printCurrentSession);
     fileMenu->addSeparator();
     QAction *exitAct = fileMenu->addAction(tr("E&xit"));
     exitAct->setShortcut(QKeySequence::Quit);
@@ -1067,6 +1073,8 @@ void MainWindow::updateEditActions()
         m_copyAct->setEnabled(hasTerminal && t->hasSelection());
     if (m_findAct)
         m_findAct->setEnabled(hasTerminal);
+    if (m_printAct)
+        m_printAct->setEnabled(hasTerminal);
 
     if (m_reconnectAct)
         m_reconnectAct->setEnabled(hasTerminal && t->canRespawn());
@@ -1093,6 +1101,28 @@ void MainWindow::showFindBar()
         return;
     }
     m_findBar->activate();
+}
+
+void MainWindow::printCurrentSession()
+{
+    TerminalWidget *t = currentTerminal();
+    if (!t) {
+        statusBar()->showMessage(tr("Print: open a terminal tab first"), 4000);
+        return;
+    }
+    QPrinter printer(QPrinter::HighResolution);
+    QPrintDialog dialog(&printer, this);
+    dialog.setWindowTitle(tr("Print Terminal"));
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    // Render the terminal text as a monospaced document; QTextDocument handles
+    // pagination across the scrollback.
+    QTextDocument doc;
+    doc.setDefaultFont(t->terminalFont());
+    doc.setPlainText(t->documentPlainText());
+    doc.print(&printer);
+    statusBar()->showMessage(tr("Sent terminal contents to the printer"), 4000);
 }
 
 void MainWindow::reconnectCurrentSession()

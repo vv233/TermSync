@@ -56,6 +56,9 @@ public:
     // screen contents as plain text.
     void sendText(const QByteArray &bytes);
     QString screenPlainText() const;
+    // Whole document (scrollback + screen) as plain text, trailing blank lines
+    // trimmed. Backs File -> Print.
+    QString documentPlainText() const;
 
     // Edit actions (M20 polish): backing for the app's Edit menu. copy/paste
     // mirror the mouse/keyboard behaviour, selectAll selects the whole document

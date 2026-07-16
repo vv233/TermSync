@@ -136,6 +136,7 @@ private:
     void updateEditActions();
     void toggleFullScreen(bool on);
     void showFindBar();
+    void printCurrentSession();
 
     // Session lifecycle (M20 polish): operate on the current terminal tab.
     void reconnectCurrentSession();
@@ -165,6 +166,7 @@ private:
     QAction *m_clearScreenAct = nullptr;
     QAction *m_clearScrollbackAct = nullptr;
     QAction *m_findAct = nullptr;
+    QAction *m_printAct = nullptr;
     QAction *m_fullScreenAct = nullptr;
     FindBar *m_findBar = nullptr;
 

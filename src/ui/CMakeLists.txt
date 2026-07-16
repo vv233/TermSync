@@ -48,6 +48,7 @@ target_include_directories(termsync_ui
 target_link_libraries(termsync_ui
     PUBLIC
         Qt6::Widgets
+        Qt6::PrintSupport
         termsync_core
         termsync_terminal
         termsync_transfer

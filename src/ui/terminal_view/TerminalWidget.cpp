@@ -9,6 +9,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QStringList>
 #include <QTimer>
 #include <QWheelEvent>
 #include <algorithm>
@@ -324,6 +325,28 @@ QString TerminalWidget::screenPlainText() const
         out += '\n';
     }
     return out;
+}
+
+QString TerminalWidget::documentPlainText() const
+{
+    QStringList lines;
+    const int rows = totalDocRows();
+    lines.reserve(rows);
+    for (int r = 0; r < rows; ++r) {
+        const Line &ln = docLine(r);
+        QString row;
+        row.reserve(ln.size());
+        for (const Cell &c : ln)
+            row += QChar(static_cast<char16_t>(c.ch));
+        // Keep interior spacing, drop trailing whitespace on each row.
+        while (!row.isEmpty() && row.back().isSpace())
+            row.chop(1);
+        lines.push_back(row);
+    }
+    // Trim trailing blank lines so the printout isn't padded with empty pages.
+    while (!lines.isEmpty() && lines.back().isEmpty())
+        lines.removeLast();
+    return lines.join('\n');
 }
 
 void TerminalWidget::onDataReceived(const QByteArray &data)
