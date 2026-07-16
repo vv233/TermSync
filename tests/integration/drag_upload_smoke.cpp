@@ -6,12 +6,14 @@
 //
 // Usage: drag_upload_smoke [localfile]
 
+#include <QAbstractItemView>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QMimeData>
+#include <QTableWidget>
 #include <QTimer>
 #include <QUrl>
 #include <cstdio>
@@ -46,13 +48,20 @@ int main(int argc, char *argv[])
     QTimer::singleShot(300, [&] {
         auto *mime = new QMimeData;
         mime->setUrls({QUrl::fromLocalFile(localFile)});
-        const QPoint pos(450, 300);
+        // Drop onto the file-list VIEWPORT — where a real Explorer drop lands —
+        // not the parent browser. The parent always accepted drops; the bug was
+        // the child view swallowing them, so the viewport is the surface to test.
+        auto *view = w->findChild<QTableWidget *>();
+        QWidget *target = view ? view->viewport() : static_cast<QWidget *>(w);
+        std::fprintf(stderr, "[target] %s\n",
+                     view ? "file-list viewport" : "browser (no table found)");
+        const QPoint pos(120, 40);
         QDragEnterEvent en(pos, Qt::CopyAction, mime, Qt::LeftButton, Qt::NoModifier);
-        QCoreApplication::sendEvent(w, &en);
+        QCoreApplication::sendEvent(target, &en);
         QDragMoveEvent mv(pos, Qt::CopyAction, mime, Qt::LeftButton, Qt::NoModifier);
-        QCoreApplication::sendEvent(w, &mv);
+        QCoreApplication::sendEvent(target, &mv);
         QDropEvent dr(QPointF(pos), Qt::CopyAction, mime, Qt::LeftButton, Qt::NoModifier);
-        QCoreApplication::sendEvent(w, &dr);
+        QCoreApplication::sendEvent(target, &dr);
         std::fprintf(stderr, "[drop] enter/move/drop sent; drop accepted=%d\n",
                      dr.isAccepted());
     });

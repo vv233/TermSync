@@ -80,11 +80,23 @@ QFileIconProvider &iconProvider()
 
 // A details table that hands drag-out (to Windows Explorer) back to the browser,
 // which downloads the files to temp before starting the OS drag.
+// True when the drag carries at least one local file (an Explorer upload).
+bool dragHasLocalFiles(const QMimeData *m)
+{
+    if (!m || !m->hasUrls())
+        return false;
+    for (const QUrl &u : m->urls())
+        if (u.isLocalFile())
+            return true;
+    return false;
+}
+
 class DragTable : public QTableWidget
 {
 public:
     using QTableWidget::QTableWidget;
     std::function<void()> onStartDrag;
+    std::function<void(const QList<QUrl> &)> onDropUrls; // external file upload
 
 protected:
     void startDrag(Qt::DropActions) override
@@ -92,20 +104,72 @@ protected:
         if (onStartDrag)
             onStartDrag();
     }
+    // The view is DragOnly for drag-out, but we still accept external file
+    // drops here directly (relying on drops "falling through" to the parent
+    // browser is unreliable on Windows, where the viewport is not a drop site).
+    void dragEnterEvent(QDragEnterEvent *e) override
+    {
+        if (dragHasLocalFiles(e->mimeData()))
+            e->acceptProposedAction();
+        else
+            QTableWidget::dragEnterEvent(e);
+    }
+    void dragMoveEvent(QDragMoveEvent *e) override
+    {
+        if (dragHasLocalFiles(e->mimeData()))
+            e->acceptProposedAction();
+        else
+            QTableWidget::dragMoveEvent(e);
+    }
+    void dropEvent(QDropEvent *e) override
+    {
+        if (dragHasLocalFiles(e->mimeData())) {
+            e->acceptProposedAction();
+            if (onDropUrls)
+                onDropUrls(e->mimeData()->urls());
+        } else {
+            QTableWidget::dropEvent(e);
+        }
+    }
 };
 
-// Same drag-out hook for the icon/list view.
+// Same drag-out hook + external-drop upload for the icon/list view.
 class DragList : public QListWidget
 {
 public:
     using QListWidget::QListWidget;
     std::function<void()> onStartDrag;
+    std::function<void(const QList<QUrl> &)> onDropUrls;
 
 protected:
     void startDrag(Qt::DropActions) override
     {
         if (onStartDrag)
             onStartDrag();
+    }
+    void dragEnterEvent(QDragEnterEvent *e) override
+    {
+        if (dragHasLocalFiles(e->mimeData()))
+            e->acceptProposedAction();
+        else
+            QListWidget::dragEnterEvent(e);
+    }
+    void dragMoveEvent(QDragMoveEvent *e) override
+    {
+        if (dragHasLocalFiles(e->mimeData()))
+            e->acceptProposedAction();
+        else
+            QListWidget::dragMoveEvent(e);
+    }
+    void dropEvent(QDropEvent *e) override
+    {
+        if (dragHasLocalFiles(e->mimeData())) {
+            e->acceptProposedAction();
+            if (onDropUrls)
+                onDropUrls(e->mimeData()->urls());
+        } else {
+            QListWidget::dropEvent(e);
+        }
     }
 };
 
@@ -520,10 +584,13 @@ QWidget *ExplorerSftpBrowser::buildFileView()
 {
     auto *table = new DragTable(0, 4, this);
     table->onStartDrag = [this] { startDragOut(); };
-    // DragOnly: the table starts drags (out to Explorer) but doesn't accept
-    // drops, so dropped local files fall through to the browser (upload).
+    table->onDropUrls = [this](const QList<QUrl> &urls) { uploadUrls(urls); };
+    // DragOnly for drag-out, but we accept external file drops explicitly (see
+    // DragTable) so uploads work reliably on Windows.
     table->setDragEnabled(true);
     table->setDragDropMode(QAbstractItemView::DragOnly);
+    table->setAcceptDrops(true);
+    table->viewport()->setAcceptDrops(true);
     m_table = table;
     m_table->setHorizontalHeaderLabels(
         {tr("Name"), tr("Date modified"), tr("Type"), tr("Size")});
@@ -564,8 +631,11 @@ QWidget *ExplorerSftpBrowser::buildFileView()
     // Icon / list view (large/medium/small icons + list mode).
     auto *iconList = new DragList(this);
     iconList->onStartDrag = [this] { startDragOut(); };
+    iconList->onDropUrls = [this](const QList<QUrl> &urls) { uploadUrls(urls); };
     iconList->setDragEnabled(true);
     iconList->setDragDropMode(QAbstractItemView::DragOnly);
+    iconList->setAcceptDrops(true);
+    iconList->viewport()->setAcceptDrops(true);
     m_iconView = iconList;
     m_iconView->setFrameShape(QFrame::NoFrame);
     m_iconView->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -1080,33 +1150,21 @@ void ExplorerSftpBrowser::deleteSelected()
 // ---------------------------------------------------------------------------
 // Drag-and-drop + clipboard (upload in / download out)
 // ---------------------------------------------------------------------------
-namespace {
-bool hasLocalFiles(const QMimeData *m)
-{
-    if (!m || !m->hasUrls())
-        return false;
-    for (const QUrl &u : m->urls())
-        if (u.isLocalFile())
-            return true;
-    return false;
-}
-} // namespace
-
 void ExplorerSftpBrowser::dragEnterEvent(QDragEnterEvent *event)
 {
-    if (hasLocalFiles(event->mimeData()))
+    if (dragHasLocalFiles(event->mimeData()))
         event->acceptProposedAction();
 }
 
 void ExplorerSftpBrowser::dragMoveEvent(QDragMoveEvent *event)
 {
-    if (hasLocalFiles(event->mimeData()))
+    if (dragHasLocalFiles(event->mimeData()))
         event->acceptProposedAction();
 }
 
 void ExplorerSftpBrowser::dropEvent(QDropEvent *event)
 {
-    if (!hasLocalFiles(event->mimeData()))
+    if (!dragHasLocalFiles(event->mimeData()))
         return;
     event->acceptProposedAction();
     uploadUrls(event->mimeData()->urls());
@@ -1148,7 +1206,7 @@ void ExplorerSftpBrowser::uploadLocalEntry(const QString &localPath,
 void ExplorerSftpBrowser::pasteFromClipboard()
 {
     const QMimeData *m = QApplication::clipboard()->mimeData();
-    if (hasLocalFiles(m))
+    if (dragHasLocalFiles(m))
         uploadUrls(m->urls());
     else
         emit statusMessage(tr("Clipboard has no files to upload"));
@@ -1362,7 +1420,7 @@ void ExplorerSftpBrowser::showContextMenu(const QPoint &pos)
         menu.addAction(tr("Delete"), this, &ExplorerSftpBrowser::deleteSelected);
         menu.addSeparator();
     }
-    if (hasLocalFiles(QApplication::clipboard()->mimeData()))
+    if (dragHasLocalFiles(QApplication::clipboard()->mimeData()))
         menu.addAction(tr("Paste"), this, &ExplorerSftpBrowser::pasteFromClipboard);
     menu.addAction(tr("Upload files…"), this, &ExplorerSftpBrowser::uploadFiles);
     menu.addAction(tr("New folder…"), this, &ExplorerSftpBrowser::newFolder);
