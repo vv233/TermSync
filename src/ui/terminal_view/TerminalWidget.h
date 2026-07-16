@@ -68,6 +68,23 @@ public:
     void clearScrollback();
     bool hasSelection() const;
 
+    // Session lifecycle (M20 polish). isConnected() reflects the live link.
+    // disconnectSession() tears it down. The respawn handler, installed by
+    // MainWindow at creation, knows how to open an identical session (same
+    // profile/params); it backs both Reconnect and Clone Session.
+    bool isConnected() const { return m_connected; }
+    void disconnectSession();
+    void setRespawnHandler(std::function<void()> handler)
+    {
+        m_respawn = std::move(handler);
+    }
+    bool canRespawn() const { return static_cast<bool>(m_respawn); }
+    void respawn() const
+    {
+        if (m_respawn)
+            m_respawn();
+    }
+
     // Session logging (M20b): tee raw received bytes to a file. `pathTemplate`
     // may contain TermSync tokens (%H host, %S session, %Y/%M/%D/%h/%m/%s
     // date-time) which are expanded using the context set by setLogContext().
@@ -177,6 +194,7 @@ private:
     bool m_appCursorKeys = false;
     bool m_connected = false;
     HostKeyVerifier m_hostKeyVerifier;
+    std::function<void()> m_respawn; // reopens an identical session (Reconnect/Clone)
 
     // Selection, in document coordinates (row, col). Inclusive-exclusive by
     // normal ordering; empty when anchor == caret and not selecting.

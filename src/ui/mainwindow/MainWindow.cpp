@@ -232,9 +232,15 @@ void MainWindow::createMenus()
     QAction *localShellAct = fileMenu->addAction(tr("Local Shell"));
     connect(localShellAct, &QAction::triggered, this, &MainWindow::openLocalShell);
     fileMenu->addSeparator();
-    placeholder(fileMenu, tr("Reconnect"));
-    placeholder(fileMenu, tr("Disconnect"));
-    placeholder(fileMenu, tr("Clone Session"));
+    m_reconnectAct = fileMenu->addAction(tr("Reconnect"));
+    connect(m_reconnectAct, &QAction::triggered, this,
+            &MainWindow::reconnectCurrentSession);
+    m_disconnectAct = fileMenu->addAction(tr("Disconnect"));
+    connect(m_disconnectAct, &QAction::triggered, this,
+            &MainWindow::disconnectCurrentSession);
+    m_cloneAct = fileMenu->addAction(tr("Clone Session"));
+    connect(m_cloneAct, &QAction::triggered, this,
+            &MainWindow::cloneCurrentSession);
     fileMenu->addSeparator();
     QAction *logSessionAct = fileMenu->addAction(tr("Log Session..."));
     connect(logSessionAct, &QAction::triggered, this,
@@ -805,6 +811,9 @@ void MainWindow::startSession(const core::ConnectionProfile &profile,
     connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
 
+    view->setRespawnHandler(
+        [this, profile, password] { startSession(profile, password); });
+
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     view->setLogContext(profile.host, baseTitle);
     applyAppearance(view);
@@ -893,6 +902,8 @@ void MainWindow::startTelnetSession(const core::ConnectionProfile &profile)
     auto *view = new TerminalWidget(conn, this); // takes ownership of conn
     connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+    view->setRespawnHandler(
+        [this, profile] { startTelnetSession(profile); });
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, baseTitle);
@@ -917,6 +928,8 @@ void MainWindow::startTn3270Session(const core::ConnectionProfile &profile)
     auto *view = new TerminalWidget(conn, this);
     connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+    view->setRespawnHandler(
+        [this, profile] { startTn3270Session(profile); });
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, baseTitle);
@@ -935,6 +948,8 @@ void MainWindow::startTn5250Session(const core::ConnectionProfile &profile)
     auto *view = new TerminalWidget(conn, this);
     connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+    view->setRespawnHandler(
+        [this, profile] { startTn5250Session(profile); });
 
     const QString baseTitle = profile.name.isEmpty() ? profile.host : profile.name;
     const int index = m_sessionTabs->addTab(view, baseTitle);
@@ -1020,6 +1035,13 @@ void MainWindow::updateEditActions()
         m_clearScrollbackAct->setEnabled(hasTerminal);
     if (m_copyAct) // Copy needs an actual selection
         m_copyAct->setEnabled(hasTerminal && t->hasSelection());
+
+    if (m_reconnectAct)
+        m_reconnectAct->setEnabled(hasTerminal && t->canRespawn());
+    if (m_cloneAct)
+        m_cloneAct->setEnabled(hasTerminal && t->canRespawn());
+    if (m_disconnectAct)
+        m_disconnectAct->setEnabled(hasTerminal && t->isConnected());
 }
 
 void MainWindow::toggleFullScreen(bool on)
@@ -1028,6 +1050,34 @@ void MainWindow::toggleFullScreen(bool on)
         showFullScreen();
     else
         showNormal();
+}
+
+void MainWindow::reconnectCurrentSession()
+{
+    TerminalWidget *t = currentTerminal();
+    if (!t || !t->canRespawn())
+        return;
+    const int index = m_sessionTabs->indexOf(t);
+    // Reopen an identical session (respawn adds a fresh tab), then drop the
+    // old one so Reconnect reads as an in-place replacement.
+    t->respawn();
+    if (index >= 0) {
+        m_sessionTabs->removeTab(index);
+        t->deleteLater();
+    }
+}
+
+void MainWindow::disconnectCurrentSession()
+{
+    if (TerminalWidget *t = currentTerminal())
+        t->disconnectSession();
+}
+
+void MainWindow::cloneCurrentSession()
+{
+    TerminalWidget *t = currentTerminal();
+    if (t && t->canRespawn())
+        t->respawn(); // opens a second identical session tab
 }
 
 void MainWindow::editKeywordHighlighting()
@@ -1142,6 +1192,8 @@ void MainWindow::startSerialSession(const core::ConnectionProfile &profile)
     auto *view = new TerminalWidget(conn, this);
     connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+    view->setRespawnHandler(
+        [this, profile] { startSerialSession(profile); });
 
     const QString baseTitle = profile.name.isEmpty() ? sp.portName : profile.name;
     view->setLogContext(sp.portName, baseTitle);
@@ -1232,6 +1284,7 @@ void MainWindow::openLocalShell()
     auto *view = new TerminalWidget(conn, this); // takes ownership of conn
     connect(view, &TerminalWidget::statusMessage, this,
             [this](const QString &msg) { statusBar()->showMessage(msg, 4000); });
+    view->setRespawnHandler([this] { openLocalShell(); });
 
     const QString title = tr("Local Shell");
     view->setLogContext(QStringLiteral("localhost"), title);

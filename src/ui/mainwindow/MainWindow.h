@@ -135,6 +135,11 @@ private:
     void updateEditActions();
     void toggleFullScreen(bool on);
 
+    // Session lifecycle (M20 polish): operate on the current terminal tab.
+    void reconnectCurrentSession();
+    void disconnectCurrentSession();
+    void cloneCurrentSession();
+
     // Synchronous trust-on-first-use check against the known-hosts store.
     // Prompts on unknown/changed keys; persists accepted keys.
     bool verifyHostKey(const QString &host, quint16 port,
@@ -158,6 +163,11 @@ private:
     QAction *m_clearScreenAct = nullptr;
     QAction *m_clearScrollbackAct = nullptr;
     QAction *m_fullScreenAct = nullptr;
+
+    // File menu session-lifecycle actions (enabled only on a terminal tab).
+    QAction *m_reconnectAct = nullptr;
+    QAction *m_disconnectAct = nullptr;
+    QAction *m_cloneAct = nullptr;
 
     std::unique_ptr<core::ProfileStore> m_profileStore;
     std::unique_ptr<core::CredentialStore> m_credentialStore;

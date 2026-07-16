@@ -823,6 +823,12 @@ void TerminalWidget::pasteFromClipboard()
     scrollToBottom();
 }
 
+void TerminalWidget::disconnectSession()
+{
+    if (m_connection && m_connected)
+        m_connection->disconnectFromHost();
+}
+
 void TerminalWidget::editCopy()
 {
     copySelectionToClipboard();
