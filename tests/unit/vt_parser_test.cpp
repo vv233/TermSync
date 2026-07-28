@@ -121,6 +121,25 @@ TEST(VtParser, ScrollOnLastLinePushesScrollback)
     EXPECT_EQ(sb.trimmed(), "one");
 }
 
+// Redraw-heavy TUIs (Ink, used by many CLIs) repaint an input line by returning
+// to its start, writing the new — often shorter — content, then erasing to the
+// end of line. If erase-to-EOL leaves the tail behind, the old text bleeds
+// through where the user is typing. Guard that exact scenario.
+TEST(VtParser, EraseToEolWipesStaleTailUnderRedraw)
+{
+    ScreenBuffer screen{40, 2};
+    VtParser parser{&screen};
+    parser.parse("OLD_STALE_CONTENT_1234567890"); // long content on row 0
+    parser.parse("\rhi\x1b[K");                    // CR + shorter text + erase-to-EOL
+
+    QString row;
+    for (const Cell &c : screen.line(0))
+        row += QChar(static_cast<char16_t>(c.ch));
+    EXPECT_EQ(row.trimmed(), "hi");        // no "STALE" tail survives
+    EXPECT_EQ(screen.line(0)[2].ch, U' '); // the cell just past "hi" is blank
+    EXPECT_EQ(screen.line(0)[20].ch, U' ');
+}
+
 TEST(ScreenBuffer, ClearScrollbackDropsHistoryKeepsScreen)
 {
     ScreenBuffer screen{10, 2};
