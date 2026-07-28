@@ -16,6 +16,8 @@ add_library(termsync_terminal STATIC
     text/HexView.cpp
     text/TextSearch.h
     text/TextSearch.cpp
+    text/CharWidth.h
+    text/CharWidth.cpp
     theme/ColorScheme.h
     theme/ColorScheme.cpp
 )

@@ -2,7 +2,25 @@
 
 #include <algorithm>
 
+#include "text/CharWidth.h"
+
 namespace termsync::terminal {
+
+void ScreenBuffer::clearCellPair(int row, int col)
+{
+    if (row < 0 || row >= m_rows || col < 0 || col >= m_cols)
+        return;
+    const Cell &c = m_lines[row][col];
+    if (c.hasFlag(CellFlag::Wide) && col + 1 < m_cols) {
+        Cell &trailer = m_lines[row][col + 1];
+        if (trailer.hasFlag(CellFlag::WideTrailer))
+            trailer = blankCell();
+    } else if (c.hasFlag(CellFlag::WideTrailer) && col - 1 >= 0) {
+        Cell &lead = m_lines[row][col - 1];
+        if (lead.hasFlag(CellFlag::Wide))
+            lead = blankCell();
+    }
+}
 
 ScreenBuffer::ScreenBuffer(int cols, int rows, int scrollbackMax)
     : m_cols(std::max(1, cols))
@@ -51,17 +69,49 @@ void ScreenBuffer::writeChar(char32_t ch)
         m_pendingWrap = false;
     }
 
+    const int w = charWidth(ch);
+
+    // A double-width glyph can't straddle the right margin: blank the last cell
+    // and wrap so the whole glyph lands on the next line.
+    if (w == 2 && m_cursorCol == m_cols - 1) {
+        clearCellPair(m_cursorRow, m_cursorCol);
+        m_lines[m_cursorRow][m_cursorCol] = blankCell();
+        m_cursorCol = 0;
+        lineFeed();
+    }
+
+    // Overwriting one half of an existing wide glyph must clear its orphaned
+    // other half so no stray glyph/spacer is left behind.
+    clearCellPair(m_cursorRow, m_cursorCol);
+    if (w == 2 && m_cursorCol + 1 < m_cols)
+        clearCellPair(m_cursorRow, m_cursorCol + 1);
+
     Cell &cell = m_lines[m_cursorRow][m_cursorCol];
     cell.ch = ch;
     cell.fg = m_pen.fg;
     cell.bg = m_pen.bg;
     cell.flags = m_pen.flags;
 
-    if (m_cursorCol == m_cols - 1) {
-        // Stay on the last column; wrap happens on the next write.
-        m_pendingWrap = true;
+    if (w == 2) {
+        cell.flags |= CellFlag::Wide;
+        if (m_cursorCol + 1 < m_cols) {
+            Cell &trailer = m_lines[m_cursorRow][m_cursorCol + 1];
+            trailer.ch = 0;
+            trailer.fg = m_pen.fg;
+            trailer.bg = m_pen.bg;
+            trailer.flags = m_pen.flags | CellFlag::WideTrailer;
+        }
+        if (m_cursorCol >= m_cols - 2) {
+            m_cursorCol = m_cols - 1;
+            m_pendingWrap = true;
+        } else {
+            m_cursorCol += 2;
+        }
     } else {
-        ++m_cursorCol;
+        if (m_cursorCol == m_cols - 1)
+            m_pendingWrap = true; // stay on the last column; wrap on next write
+        else
+            ++m_cursorCol;
     }
 }
 

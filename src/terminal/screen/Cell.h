@@ -16,6 +16,10 @@ enum CellFlag : uint16_t {
     Reverse       = 1 << 5,
     Invisible     = 1 << 6,
     Strikethrough = 1 << 7,
+    // Double-width (CJK) support: the lead cell of a wide glyph carries Wide;
+    // the cell it spills into carries WideTrailer and holds no glyph.
+    Wide          = 1 << 8,
+    WideTrailer   = 1 << 9,
 };
 
 // One character cell of the terminal grid.

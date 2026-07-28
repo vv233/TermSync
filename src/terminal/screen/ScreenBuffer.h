@@ -88,6 +88,9 @@ private:
     Line blankLine() const;
     Cell blankCell() const;
     void clampCursor();
+    // When (row,col) holds one half of a double-width glyph, blank its partner
+    // cell so overwriting never leaves an orphaned lead or trailer behind.
+    void clearCellPair(int row, int col);
     // Scrolls the region [top,bottom] up by n lines; when the region is the
     // full screen and not on the alt screen, evicted top lines go to scrollback.
     void scrollRegionUp(int top, int bottom, int n);

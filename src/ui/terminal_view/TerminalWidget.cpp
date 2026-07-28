@@ -380,8 +380,11 @@ QString TerminalWidget::screenPlainText() const
     for (int r = 0; r < m_screen->rows(); ++r) {
         const terminal::Line &line = m_screen->line(r);
         QString rowText;
-        for (const terminal::Cell &c : line)
+        for (const terminal::Cell &c : line) {
+            if (c.hasFlag(terminal::CellFlag::WideTrailer))
+                continue; // the wide glyph's lead already contributed the char
             rowText += QChar(static_cast<char16_t>(c.ch));
+        }
         out += rowText.trimmed().isEmpty() ? QString() : rowText;
         out += '\n';
     }
@@ -397,8 +400,11 @@ QString TerminalWidget::documentPlainText() const
         const Line &ln = docLine(r);
         QString row;
         row.reserve(ln.size());
-        for (const Cell &c : ln)
+        for (const Cell &c : ln) {
+            if (c.hasFlag(CellFlag::WideTrailer))
+                continue;
             row += QChar(static_cast<char16_t>(c.ch));
+        }
         // Keep interior spacing, drop trailing whitespace on each row.
         while (!row.isEmpty() && row.back().isSpace())
             row.chop(1);
@@ -583,6 +589,11 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
         for (int col = 0; col < cols && col < line.size(); ++col) {
             const qreal x = m_padX + col * m_cellW;
             const Cell &cell = line[col];
+            // The trailing half of a double-width glyph is painted by its lead.
+            if (cell.hasFlag(CellFlag::WideTrailer))
+                continue;
+            const qreal cellW =
+                cell.hasFlag(CellFlag::Wide) ? m_cellW * 2 : m_cellW;
             const bool bold = cell.hasFlag(CellFlag::Bold);
 
             QColor fg = cell.fg.type == Color::Type::Default
@@ -616,7 +627,7 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
             if (selected)
                 std::swap(fg, bg);
 
-            const QRectF cellRect(x, y, m_cellW, m_cellH);
+            const QRectF cellRect(x, y, cellW, m_cellH);
             if (bg != m_defaultBg || selected)
                 painter.fillRect(cellRect, bg);
 
@@ -872,8 +883,11 @@ QString TerminalWidget::selectionText() const
         const int startCol = (row == a.x()) ? a.y() : 0;
         const int endCol = (row == b.x()) ? b.y() : line.size(); // exclusive
         QString rowText;
-        for (int c = startCol; c < endCol && c < line.size(); ++c)
+        for (int c = startCol; c < endCol && c < line.size(); ++c) {
+            if (line[c].hasFlag(CellFlag::WideTrailer))
+                continue;
             rowText += QChar(static_cast<char16_t>(line[c].ch));
+        }
         if (row != b.x())
             out += rowText + '\n';
         else
@@ -941,8 +955,11 @@ bool TerminalWidget::find(const QString &needle, bool forward, bool caseSensitiv
         QString s;
         const Line &ln = docLine(r);
         s.reserve(ln.size());
-        for (const Cell &c : ln)
+        for (const Cell &c : ln) {
+            if (c.hasFlag(CellFlag::WideTrailer))
+                continue;
             s += QChar(static_cast<char16_t>(c.ch));
+        }
         return s;
     };
 

@@ -140,6 +140,44 @@ TEST(VtParser, EraseToEolWipesStaleTailUnderRedraw)
     EXPECT_EQ(screen.line(0)[20].ch, U' ');
 }
 
+// CJK / fullwidth characters occupy two cells. If the emulator advances the
+// cursor by one, every column after the text desyncs from what the remote
+// program assumes and the display overlaps. Assert the cursor advances by two
+// and the trailing cell is flagged so the renderer can skip it.
+TEST(VtParser, WideCjkCharAdvancesTwoColumns)
+{
+    ScreenBuffer screen{20, 2};
+    VtParser parser{&screen};
+    parser.parse("\xE4\xBD\xA0\xE5\xA5\xBD"); // "你好" (U+4F60 U+597D), both wide
+
+    EXPECT_EQ(screen.cursorCol(), 4); // two wide chars -> 4 columns
+    EXPECT_EQ(screen.line(0)[0].ch, char32_t(0x4F60));
+    EXPECT_TRUE(screen.line(0)[0].hasFlag(CellFlag::Wide));
+    EXPECT_TRUE(screen.line(0)[1].hasFlag(CellFlag::WideTrailer));
+    EXPECT_EQ(screen.line(0)[2].ch, char32_t(0x597D));
+    EXPECT_TRUE(screen.line(0)[2].hasFlag(CellFlag::Wide));
+    EXPECT_TRUE(screen.line(0)[3].hasFlag(CellFlag::WideTrailer));
+
+    // An ASCII char after the wide pair lands at column 4, not 2.
+    parser.parse("X");
+    EXPECT_EQ(screen.line(0)[4].ch, char32_t('X'));
+    EXPECT_FALSE(screen.line(0)[4].hasFlag(CellFlag::Wide));
+}
+
+TEST(VtParser, OverwritingWideCharClearsOrphanedHalf)
+{
+    ScreenBuffer screen{20, 2};
+    VtParser parser{&screen};
+    parser.parse("\xE4\xBD\xA0");      // "你" at cols 0-1 (wide + trailer)
+    parser.parse("\r");                 // cursor back to col 0
+    parser.parse("ab");                 // overwrite: 'a' at 0, 'b' at 1
+
+    EXPECT_EQ(screen.line(0)[0].ch, char32_t('a'));
+    EXPECT_FALSE(screen.line(0)[0].hasFlag(CellFlag::Wide));
+    EXPECT_EQ(screen.line(0)[1].ch, char32_t('b'));
+    EXPECT_FALSE(screen.line(0)[1].hasFlag(CellFlag::WideTrailer)); // no orphan
+}
+
 TEST(ScreenBuffer, ClearScrollbackDropsHistoryKeepsScreen)
 {
     ScreenBuffer screen{10, 2};
