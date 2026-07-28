@@ -89,6 +89,9 @@ signals:
     void hostKeyFingerprint(const QString &sha256Hex);
     // Authentication failed (bad password, method not allowed, ...).
     void authenticationFailed(const QString &reason);
+    // The remote shell/channel closed cleanly (e.g. `exit`), as opposed to an
+    // unexpected drop — lets the terminal skip auto-reconnect.
+    void remoteExited();
     // (connected / dataReceived / errorOccurred / disconnected are inherited.)
 
 private:

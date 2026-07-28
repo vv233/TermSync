@@ -129,12 +129,26 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
     , m_defaultBg(QColor(0x1a, 0x1b, 0x26))
 {
     initView();
+    m_sshParams = params;
+    m_isSshSession = true;
 
-    auto *ssh = new core::SshConnection(this);
-    m_ssh = ssh;
-    m_connection = ssh;
-    wireConnection();
+    // Termius-style connecting overlay until the shell opens (first connect only;
+    // reconnects report inline instead of re-showing the overlay).
+    m_connecting = new ConnectingOverlay(this);
+    m_connecting->setTitle(params.host);
+    m_connecting->setSubtitle(
+        tr("SSH %1:%2").arg(params.host).arg(params.port));
+    connect(m_connecting, &ConnectingOverlay::dismissed, this,
+            &TerminalWidget::dismissConnecting);
+    m_connecting->setGeometry(rect());
+    m_connecting->raise();
+    m_connecting->show();
 
+    startSshConnection();
+}
+
+void TerminalWidget::wireSshSignals(core::SshConnection *ssh)
+{
     // SSH-specific: host-key trust-on-first-use, then authenticate.
     connect(ssh, &core::SshConnection::hostKeyFingerprint, this,
             [this, ssh](const QString &fp) {
@@ -148,26 +162,59 @@ TerminalWidget::TerminalWidget(const core::SshConnectionParams &params,
                 else
                     ssh->approveHostKey(true); // auto-trust (tests)
             });
+    // A clean remote exit (shell `exit`, channel EOF) must not auto-reconnect.
+    connect(ssh, &core::SshConnection::remoteExited, this,
+            [this] { m_remoteExitedCleanly = true; });
     connect(ssh, &core::SshConnection::authenticationFailed, this,
             [this](const QString &r) {
                 m_parser->parse(QByteArray("\r\n[authentication failed: ") +
                                 r.toUtf8() + "]\r\n");
                 emit statusMessage(tr("Authentication failed"));
+                // Retrying the same rejected credentials would loop; stop.
+                m_autoReconnect = false;
                 update();
             });
+}
 
-    // Termius-style connecting overlay until the shell opens.
-    m_connecting = new ConnectingOverlay(this);
-    m_connecting->setTitle(params.host);
-    m_connecting->setSubtitle(
-        tr("SSH %1:%2").arg(params.host).arg(params.port));
-    connect(m_connecting, &ConnectingOverlay::dismissed, this,
-            &TerminalWidget::dismissConnecting);
-    m_connecting->setGeometry(rect());
-    m_connecting->raise();
-    m_connecting->show();
+void TerminalWidget::startSshConnection()
+{
+    // Drop any previous connection object (reconnect path).
+    if (m_connection) {
+        disconnect(m_connection, nullptr, this, nullptr);
+        m_connection->deleteLater();
+        m_connection = nullptr;
+        m_ssh = nullptr;
+    }
+    m_remoteExitedCleanly = false;
+    // Reconnect at the current on-screen size, not the stale startup size.
+    m_sshParams.cols = m_screen->cols();
+    m_sshParams.rows = m_screen->rows();
 
-    ssh->connectToHost(params);
+    auto *ssh = new core::SshConnection(this);
+    m_ssh = ssh;
+    m_connection = ssh;
+    wireConnection();
+    wireSshSignals(ssh);
+    ssh->connectToHost(m_sshParams);
+}
+
+void TerminalWidget::scheduleReconnect()
+{
+    m_reconnecting = true;
+    const int secs = m_reconnectDelayMs / 1000;
+    m_parser->parse(QByteArray("\r\n[connection lost \xE2\x80\x94 reconnecting in ") +
+                    QByteArray::number(secs) + "s\xE2\x80\xA6]\r\n");
+    emit statusMessage(tr("Connection lost — reconnecting in %1s…").arg(secs));
+    update();
+
+    if (!m_reconnectTimer) {
+        m_reconnectTimer = new QTimer(this);
+        m_reconnectTimer->setSingleShot(true);
+        connect(m_reconnectTimer, &QTimer::timeout, this,
+                [this] { startSshConnection(); });
+    }
+    m_reconnectTimer->start(m_reconnectDelayMs);
+    m_reconnectDelayMs = std::min(m_reconnectDelayMs * 2, 30000); // backoff
 }
 
 TerminalWidget::TerminalWidget(core::AbstractTerminalConnection *connection,
@@ -239,8 +286,15 @@ void TerminalWidget::wireConnection()
     connect(m_connection, &core::AbstractTerminalConnection::dataReceived, this,
             &TerminalWidget::onDataReceived);
     connect(m_connection, &core::AbstractTerminalConnection::connected, this, [this] {
+        const bool wasReconnecting = m_reconnecting;
         m_connected = true;
+        m_reconnecting = false;
+        m_reconnectDelayMs = 2000; // reset backoff after a good connect
         dismissConnecting();
+        if (wasReconnecting) {
+            m_parser->parse("\r\n[reconnected]\r\n");
+            update();
+        }
         emit statusMessage(tr("Connected"));
     });
     connect(m_connection, &core::AbstractTerminalConnection::errorOccurred, this,
@@ -253,6 +307,13 @@ void TerminalWidget::wireConnection()
             });
     connect(m_connection, &core::AbstractTerminalConnection::disconnected, this, [this] {
         m_connected = false;
+        // Auto-reconnect SSH sessions dropped unexpectedly (idle timeout, network
+        // blip). A user-initiated Disconnect or a clean remote exit suppresses it.
+        if (m_isSshSession && m_autoReconnect && !m_userClosing &&
+            !m_remoteExitedCleanly) {
+            scheduleReconnect();
+            return;
+        }
         m_parser->parse("\r\n[disconnected]\r\n");
         emit statusMessage(tr("Disconnected"));
         update();
@@ -849,6 +910,10 @@ void TerminalWidget::pasteFromClipboard()
 
 void TerminalWidget::disconnectSession()
 {
+    m_userClosing = true; // deliberate close: do not auto-reconnect
+    if (m_reconnectTimer)
+        m_reconnectTimer->stop();
+    m_reconnecting = false;
     if (m_connection && m_connected)
         m_connection->disconnectFromHost();
 }

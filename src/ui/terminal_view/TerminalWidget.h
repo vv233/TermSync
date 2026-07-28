@@ -167,6 +167,13 @@ private:
     void initView();       // shared widget setup (font, blink, metrics)
     void wireConnection(); // connect the common AbstractTerminalConnection signals
 
+    // Auto-reconnect (SSH sessions): (re)create the SSH connection from the
+    // stored params, wire its SSH-specific signals, and schedule a retry with
+    // backoff after an unexpected drop. Scrollback is preserved across retries.
+    void wireSshSignals(core::SshConnection *ssh);
+    void startSshConnection();
+    void scheduleReconnect();
+
     core::AbstractTerminalConnection *m_connection = nullptr;
     core::SshConnection *m_ssh = nullptr; // non-null only for SSH sessions
     std::unique_ptr<terminal::ScreenBuffer> m_screen;
@@ -207,6 +214,16 @@ private:
     bool m_appCursorKeys = false;
     bool m_connected = false;
     HostKeyVerifier m_hostKeyVerifier;
+
+    // Auto-reconnect state (SSH only).
+    core::SshConnectionParams m_sshParams;
+    bool m_isSshSession = false;
+    bool m_autoReconnect = true;
+    bool m_userClosing = false;  // set by disconnectSession(): suppress reconnect
+    bool m_reconnecting = false;         // a retry is pending or in flight
+    bool m_remoteExitedCleanly = false;  // shell ended (exit): don't reconnect
+    int m_reconnectDelayMs = 2000;
+    class QTimer *m_reconnectTimer = nullptr;
     std::function<void()> m_respawn; // reopens an identical session (Reconnect/Clone)
 
     // Selection, in document coordinates (row, col). Inclusive-exclusive by

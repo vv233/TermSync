@@ -208,12 +208,29 @@ public slots:
         connect(m_readNotifier, &QSocketNotifier::activated, this,
                 &SshWorker::pumpIo);
 
-        // A low-frequency safety net: libssh2 can buffer decrypted data that
-        // arrived with an earlier packet, which won't re-trigger the notifier.
+        // Safety net for decrypted data libssh2 buffered from an earlier packet
+        // (which won't re-trigger the notifier). Kept short so redraw-heavy TUIs
+        // (e.g. full-screen CLIs) don't visibly lag behind the server.
         m_pump = new QTimer(this);
-        m_pump->setInterval(40);
+        m_pump->setInterval(16); // ~60 Hz
         connect(m_pump, &QTimer::timeout, this, &SshWorker::pumpIo);
         m_pump->start();
+
+        // Keep idle sessions alive across NAT/server idle timeouts, and notice a
+        // dead link promptly (want_reply). libssh2 sends the keepalive from
+        // keepalive_send(), which we call on a timer on this (worker) thread.
+        libssh2_keepalive_config(m_session, 1 /*want_reply*/, 30 /*seconds*/);
+        m_keepalive = new QTimer(this);
+        m_keepalive->setInterval(15000);
+        connect(m_keepalive, &QTimer::timeout, this, [this] {
+            if (!m_session)
+                return;
+            int secondsToNext = 0;
+            const int rc = libssh2_keepalive_send(m_session, &secondsToNext);
+            if (rc < 0 && rc != LIBSSH2_ERROR_EAGAIN)
+                handleRemoteClose(); // link is dead; triggers disconnect
+        });
+        m_keepalive->start();
     }
 
     void queueData(const QByteArray &data)
@@ -252,6 +269,7 @@ signals:
     void authenticationFailed(const QString &reason);
     void errorOccurred(const QString &message);
     void disconnected();
+    void remoteExited(); // shell/channel closed cleanly (EOF), not a drop
 
 private slots:
     void pumpIo()
@@ -274,16 +292,16 @@ private slots:
                 break; // nothing more for now
             if (rc == 0) {
                 if (libssh2_channel_eof(m_channel))
-                    { handleRemoteClose(); return; }
+                    { handleRemoteClose(/*cleanExit=*/true); return; }
                 break;
             }
-            // rc < 0 and not EAGAIN: fatal.
-            handleRemoteClose();
+            // rc < 0 and not EAGAIN: fatal (unexpected drop).
+            handleRemoteClose(/*cleanExit=*/false);
             return;
         }
 
         if (libssh2_channel_eof(m_channel))
-            handleRemoteClose();
+            handleRemoteClose(/*cleanExit=*/true);
     }
 
 private:
@@ -643,11 +661,13 @@ private:
         ::select(static_cast<int>(m_socket + 1), readfd, writefd, nullptr, &tv);
     }
 
-    void handleRemoteClose()
+    void handleRemoteClose(bool cleanExit = false)
     {
         if (m_reportedClose)
             return;
         m_reportedClose = true;
+        if (cleanExit)
+            emit remoteExited(); // shell ended normally: no auto-reconnect
         teardown();
     }
 
@@ -771,6 +791,11 @@ private:
             m_pump->deleteLater();
             m_pump = nullptr;
         }
+        if (m_keepalive) {
+            m_keepalive->stop();
+            m_keepalive->deleteLater();
+            m_keepalive = nullptr;
+        }
         while (!m_x11Pipes.isEmpty())
             closeX11Pipe(m_x11Pipes.first());
         if (m_channel) {
@@ -795,6 +820,7 @@ private:
     LIBSSH2_SESSION *m_session = nullptr;
     LIBSSH2_CHANNEL *m_channel = nullptr;
     QTimer *m_pump = nullptr;
+    QTimer *m_keepalive = nullptr;
     QSocketNotifier *m_readNotifier = nullptr;
     bool m_reportedClose = false;
     QString m_setupError;
@@ -841,6 +867,7 @@ SshConnection::SshConnection(QObject *parent)
     connect(m_worker, &SshWorker::authenticationFailed, this,
             &SshConnection::authenticationFailed);
     connect(m_worker, &SshWorker::errorOccurred, this, &SshConnection::errorOccurred);
+    connect(m_worker, &SshWorker::remoteExited, this, &SshConnection::remoteExited);
     connect(m_worker, &SshWorker::disconnected, this, [this] {
         m_connected = false;
         emit disconnected();
