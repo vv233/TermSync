@@ -704,6 +704,21 @@ void TerminalWidget::dismissConnecting()
 // ---------------------------------------------------------------------------
 // Keyboard
 // ---------------------------------------------------------------------------
+bool TerminalWidget::event(QEvent *event)
+{
+    // QWidget::event() steals Tab/Backtab for focus traversal before
+    // keyPressEvent runs. Route them to our key handler so Tab reaches the shell
+    // (completion) and the terminal keeps focus.
+    if (event->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        if (ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Backtab) {
+            keyPressEvent(ke);
+            return true;
+        }
+    }
+    return QWidget::event(event);
+}
+
 void TerminalWidget::keyPressEvent(QKeyEvent *event)
 {
     // Copy/paste shortcuts (terminal convention: Ctrl+Shift+C/V).

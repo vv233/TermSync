@@ -131,6 +131,9 @@ signals:
     void titleChanged(const QString &title);
 
 protected:
+    // Intercept Tab/Backtab before Qt's focus traversal eats them, so they reach
+    // the shell (completion) instead of moving focus off the terminal.
+    bool event(QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
