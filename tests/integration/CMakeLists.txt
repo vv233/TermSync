@@ -65,6 +65,25 @@ target_link_libraries(sudo_smoke
         Qt6::Core
 )
 
+add_executable(sudo_session_smoke
+    sudo_session_smoke.cpp
+)
+target_link_libraries(sudo_session_smoke
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
+add_executable(explorer_e2e_smoke
+    explorer_e2e_smoke.cpp
+)
+target_link_libraries(explorer_e2e_smoke
+    PRIVATE
+        termsync_ui
+        termsync_transfer
+        Qt6::Widgets
+)
+
 add_executable(credential_smoke
     credential_smoke.cpp
 )
