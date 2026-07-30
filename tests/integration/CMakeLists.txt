@@ -315,6 +315,16 @@ target_link_libraries(transfer_queue_smoke
         Qt6::Widgets
 )
 
+# Wiring check: drag-in upload on the traditional dual-pane browser.
+add_executable(dualpane_dragin_smoke
+    dualpane_dragin_smoke.cpp
+)
+target_link_libraries(dualpane_dragin_smoke
+    PRIVATE
+        termsync_ui
+        Qt6::Widgets
+)
+
 # Render smoke (no admin): the TFTP Server control dialog -> PNG.
 add_executable(tftp_dialog_smoke
     tftp_dialog_smoke.cpp

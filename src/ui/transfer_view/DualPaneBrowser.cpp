@@ -10,7 +10,13 @@
 #include <QFileSystemModel>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QEvent>
 #include <QInputDialog>
+#include <QMimeData>
+#include <QUrl>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -78,6 +84,8 @@ DualPaneBrowser::DualPaneBrowser(const core::SshConnectionParams &params,
             &DualPaneBrowser::onTransferFinished);
     connect(m_session, &transfer::SftpSession::syncListingReady, this,
             &DualPaneBrowser::onSyncListingReady);
+    connect(m_session, &transfer::SftpSession::sudoModeChanged, this,
+            &DualPaneBrowser::onSudoModeChanged);
 
     auto *panes = new QSplitter(Qt::Horizontal, this);
     panes->addWidget(buildLocalPane());
@@ -186,6 +194,15 @@ QWidget *DualPaneBrowser::buildRemotePane()
     connect(up, &QToolButton::clicked, this, &DualPaneBrowser::remoteGoUp);
     auto *downloadBtn = new QPushButton(tr("← Download"));
     connect(downloadBtn, &QPushButton::clicked, this, &DualPaneBrowser::downloadSelected);
+
+    // Sudo mode: run remote operations as root (parity with the Explorer view).
+    m_sudoBtn = new QToolButton;
+    m_sudoBtn->setText(tr("Sudo"));
+    m_sudoBtn->setCheckable(true);
+    m_sudoBtn->setToolTip(
+        tr("Run operations as root (sudo) to access protected files"));
+    connect(m_sudoBtn, &QToolButton::toggled, this, &DualPaneBrowser::toggleSudo);
+
     auto *syncBtn = new QPushButton(tr("Synchronize..."));
     connect(syncBtn, &QPushButton::clicked, this, &DualPaneBrowser::onSyncClicked);
 
@@ -201,6 +218,7 @@ QWidget *DualPaneBrowser::buildRemotePane()
     m_remotePathEdit = new QLineEdit;
     m_remotePathEdit->setReadOnly(true);
     bar->addWidget(downloadBtn);
+    bar->addWidget(m_sudoBtn);
     bar->addWidget(buildBookmarkButton());
     bar->addWidget(syncBrowse);
     bar->addWidget(syncBtn);
@@ -209,6 +227,7 @@ QWidget *DualPaneBrowser::buildRemotePane()
     bar->addWidget(up);
 
     m_remoteTable = new QTableWidget(0, 4);
+    m_remoteTable->setObjectName(QStringLiteral("remoteTable"));
     m_remoteTable->setHorizontalHeaderLabels(
         {tr("Name"), tr("Size"), tr("Modified"), tr("Perms")});
     m_remoteTable->horizontalHeader()->setStretchLastSection(true);
@@ -221,6 +240,13 @@ QWidget *DualPaneBrowser::buildRemotePane()
             &DualPaneBrowser::onRemoteActivated);
     connect(m_remoteTable, &QWidget::customContextMenuRequested, this,
             &DualPaneBrowser::remoteContextMenu);
+
+    // Accept files dragged in from Explorer (upload). The table isn't a custom
+    // subclass, so watch its viewport via an event filter.
+    m_remoteTable->setAcceptDrops(true);
+    m_remoteTable->viewport()->setAcceptDrops(true);
+    m_remoteTable->installEventFilter(this);
+    m_remoteTable->viewport()->installEventFilter(this);
 
     layout->addLayout(bar);
     layout->addWidget(m_remoteTable);
@@ -437,15 +463,96 @@ void DualPaneBrowser::uploadSelected()
         emit statusMessage(tr("Select local file(s) to upload"));
         return;
     }
+    uploadPaths(files);
+}
+
+void DualPaneBrowser::uploadPaths(const QStringList &files)
+{
+    int n = 0;
     for (const QString &local : files) {
+        const QFileInfo fi(local);
         TransferItem item;
         item.direction = TransferItem::Upload;
-        item.localPath = local;
-        item.displayName = QFileInfo(local).fileName();
-        item.remotePath = remoteJoin(m_remotePath, item.displayName);
-        item.size = static_cast<quint64>(QFileInfo(local).size());
-        m_session->enqueue(item);
+        if (fi.isDir()) {
+            item.kind = TransferItem::BulkDir;
+            item.localPath = local;
+            item.remotePath = m_remotePath; // parent dir the tree unpacks into
+            item.displayName = fi.fileName();
+            m_session->enqueueBulkUpload(local, m_remotePath, fi.fileName());
+        } else {
+            item.localPath = local;
+            item.displayName = fi.fileName();
+            item.remotePath = remoteJoin(m_remotePath, item.displayName);
+            item.size = static_cast<quint64>(fi.size());
+            m_session->enqueue(item);
+        }
+        ++n;
     }
+    if (n)
+        emit statusMessage(tr("Uploading %n item(s) to %1", "", n).arg(m_remotePath));
+}
+
+bool DualPaneBrowser::eventFilter(QObject *obj, QEvent *event)
+{
+    if (m_remoteTable &&
+        (obj == m_remoteTable || obj == m_remoteTable->viewport())) {
+        const QEvent::Type t = event->type();
+        if (t == QEvent::DragEnter || t == QEvent::DragMove || t == QEvent::Drop) {
+            auto *de = static_cast<QDropEvent *>(event);
+            const QMimeData *m = de->mimeData();
+            bool hasFiles = false;
+            if (m && m->hasUrls())
+                for (const QUrl &u : m->urls())
+                    if (u.isLocalFile()) { hasFiles = true; break; }
+            if (hasFiles) {
+                de->acceptProposedAction();
+                if (t == QEvent::Drop) {
+                    QStringList paths;
+                    for (const QUrl &u : m->urls())
+                        if (u.isLocalFile())
+                            paths << u.toLocalFile();
+                    uploadPaths(paths);
+                }
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(obj, event);
+}
+
+void DualPaneBrowser::toggleSudo(bool on)
+{
+    if (!on) {
+        m_session->setSudo(false, QString());
+        return;
+    }
+    bool ok = false;
+    const QString pw = QInputDialog::getText(
+        this, tr("Sudo password"),
+        tr("Enter the sudo password for the remote user:"), QLineEdit::Password,
+        QString(), &ok);
+    if (!ok) {
+        QSignalBlocker block(m_sudoBtn);
+        m_sudoBtn->setChecked(false);
+        return;
+    }
+    emit statusMessage(tr("Authenticating sudo…"));
+    m_session->setSudo(true, pw);
+}
+
+void DualPaneBrowser::onSudoModeChanged(bool enabled, bool ok, const QString &message)
+{
+    {
+        QSignalBlocker block(m_sudoBtn);
+        m_sudoBtn->setChecked(enabled);
+    }
+    if (!ok) {
+        emit statusMessage(tr("Sudo: %1").arg(message));
+        return;
+    }
+    emit statusMessage(enabled ? tr("Sudo mode on — operating as root")
+                               : tr("Sudo mode off"));
+    requestRemoteList(m_remotePath); // re-list at the new privilege level
 }
 
 void DualPaneBrowser::downloadSelected()

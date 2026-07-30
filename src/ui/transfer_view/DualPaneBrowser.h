@@ -55,6 +55,8 @@ private slots:
     void onRemoteActivated(int row, int column);
     void uploadSelected();
     void downloadSelected();
+    void toggleSudo(bool on);
+    void onSudoModeChanged(bool enabled, bool ok, const QString &message);
     void remoteContextMenu(const QPoint &pos);
     void localGoUp();
     void remoteGoUp();
@@ -78,6 +80,11 @@ private:
     void mirrorLocalToRemote(const QString &newLocal);
     QString remoteJoin(const QString &dir, const QString &name) const;
     QStringList selectedLocalFiles() const;
+    void uploadPaths(const QStringList &files); // shared by button + drag-in
+
+protected:
+    // Accept files dragged from Explorer onto the remote table (upload).
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
     transfer::SftpSession *m_session = nullptr;
     QString m_remotePath = QStringLiteral(".");
@@ -88,6 +95,7 @@ private:
 
     QTableWidget *m_remoteTable = nullptr;
     QLineEdit *m_remotePathEdit = nullptr;
+    QToolButton *m_sudoBtn = nullptr;
     QVector<transfer::SftpEntry> m_remoteEntries;
 
     QTableWidget *m_queueTable = nullptr;
