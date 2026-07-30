@@ -303,6 +303,30 @@ public slots:
                                ok ? path : m_engine->lastError());
     }
 
+    // Recursively delete a remote entry through the engine interface (works for
+    // SFTP and FTP). SFTP rmdir only removes EMPTY directories, so a folder must
+    // have its contents cleared first — otherwise deleting any non-empty folder
+    // fails.
+    bool removeRecursive(const QString &path, bool isDir)
+    {
+        if (!isDir)
+            return m_engine->removeFile(path);
+        QVector<SftpEntry> entries;
+        if (!m_engine->listDirectory(path, &entries))
+            return false;
+        for (const SftpEntry &e : entries) {
+            if (e.name == QLatin1String(".") || e.name == QLatin1String(".."))
+                continue;
+            const QString child =
+                path.endsWith('/') ? path + e.name : path + '/' + e.name;
+            // Don't recurse into a symlinked directory — just unlink the link.
+            const bool childIsDir = e.isDirectory && !e.isSymlink;
+            if (!removeRecursive(child, childIsDir))
+                return false;
+        }
+        return m_engine->removeDirectory(path); // now empty
+    }
+
     void doRemove(const QString &path, bool isDir)
     {
         bool ok;
@@ -311,8 +335,7 @@ public slots:
             ok = runSudo(QStringLiteral("rm -rf %1").arg(shQuote(path)), nullptr,
                          &ec) && ec == 0;
         } else {
-            ok = isDir ? m_engine->removeDirectory(path)
-                       : m_engine->removeFile(path);
+            ok = removeRecursive(path, isDir);
         }
         emit operationFinished(QStringLiteral("remove"), ok,
                                ok ? path : m_engine->lastError());

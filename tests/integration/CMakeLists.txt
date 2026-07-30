@@ -84,6 +84,15 @@ target_link_libraries(explorer_e2e_smoke
         Qt6::Widgets
 )
 
+add_executable(remove_dir_smoke
+    remove_dir_smoke.cpp
+)
+target_link_libraries(remove_dir_smoke
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
 add_executable(credential_smoke
     credential_smoke.cpp
 )
