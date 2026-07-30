@@ -237,20 +237,30 @@ public slots:
     {
         if (!m_channel)
             return;
-        const char *ptr = data.constData();
-        int remaining = data.size();
-        while (remaining > 0) {
-            ssize_t rc = libssh2_channel_write(m_channel, ptr, remaining);
-            if (rc == LIBSSH2_ERROR_EAGAIN) {
-                waitSocket();
-                continue;
-            }
+        // Buffer and flush without blocking. Blocking here (the old waitSocket
+        // loop) stalled the worker's event loop when the link was congested —
+        // e.g. a Tab-completion burst coming back from a far server — which
+        // froze the whole terminal. Anything that can't be sent now is retried
+        // on the next pump.
+        m_writeBuf.append(data);
+        flushWrite();
+    }
+
+    // Push as much of the pending keystroke buffer as the channel will take
+    // right now; keep the remainder for the next pump. Never blocks.
+    void flushWrite()
+    {
+        while (m_channel && !m_writeBuf.isEmpty()) {
+            ssize_t rc = libssh2_channel_write(m_channel, m_writeBuf.constData(),
+                                               m_writeBuf.size());
+            if (rc == LIBSSH2_ERROR_EAGAIN)
+                return; // socket not writable yet; retry later
             if (rc < 0) {
                 emit errorOccurred(tr("Write error (%1)").arg(rc));
+                m_writeBuf.clear();
                 return;
             }
-            ptr += rc;
-            remaining -= static_cast<int>(rc);
+            m_writeBuf.remove(0, static_cast<int>(rc));
         }
     }
 
@@ -277,30 +287,43 @@ private slots:
         if (!m_channel)
             return;
 
+        // Retry any keystrokes that couldn't be sent earlier (congested link).
+        flushWrite();
+
         // Service any forwarded X11 connections on the same session.
         if (!m_x11Pipes.isEmpty())
             pumpX11All();
 
+        // Drain everything available, but coalesce into few large emits instead
+        // of one queued signal per 4 KB. A Tab-completion / cat flood otherwise
+        // floods the UI thread with thousands of events and locks it up.
         char buf[4096];
+        QByteArray batch;
+        bool eof = false, fatal = false;
         for (;;) {
             ssize_t rc = libssh2_channel_read(m_channel, buf, sizeof(buf));
             if (rc > 0) {
-                emit dataReceived(QByteArray(buf, static_cast<int>(rc)));
+                batch.append(buf, static_cast<int>(rc));
+                if (batch.size() >= 256 * 1024) { // bound a single emit
+                    emit dataReceived(batch);
+                    batch.clear();
+                }
                 continue;
             }
             if (rc == LIBSSH2_ERROR_EAGAIN)
                 break; // nothing more for now
             if (rc == 0) {
-                if (libssh2_channel_eof(m_channel))
-                    { handleRemoteClose(/*cleanExit=*/true); return; }
+                eof = libssh2_channel_eof(m_channel);
                 break;
             }
-            // rc < 0 and not EAGAIN: fatal (unexpected drop).
-            handleRemoteClose(/*cleanExit=*/false);
-            return;
+            fatal = true; // rc < 0 and not EAGAIN: unexpected drop
+            break;
         }
+        if (!batch.isEmpty())
+            emit dataReceived(batch);
 
-        if (libssh2_channel_eof(m_channel))
+        if (fatal) { handleRemoteClose(/*cleanExit=*/false); return; }
+        if (eof || libssh2_channel_eof(m_channel))
             handleRemoteClose(/*cleanExit=*/true);
     }
 
@@ -822,6 +845,7 @@ private:
     QTimer *m_pump = nullptr;
     QTimer *m_keepalive = nullptr;
     QSocketNotifier *m_readNotifier = nullptr;
+    QByteArray m_writeBuf; // keystrokes not yet accepted by the channel
     bool m_reportedClose = false;
     QString m_setupError;
 
