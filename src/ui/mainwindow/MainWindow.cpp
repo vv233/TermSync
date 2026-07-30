@@ -129,6 +129,20 @@ void MainWindow::showEvent(QShowEvent *event)
     // and force a frame recompute so WM_NCCALCSIZE strips the native caption.
     applyDarkTitleBar(this);
     updateMaximizeIcon();
+
+    // Allow drag-and-drop from (lower-integrity) Explorer when TermSync runs
+    // elevated. Windows UIPI otherwise silently blocks the drop messages, so
+    // dragging files onto the SFTP browser does nothing. Harmless when not
+    // elevated. Must target the top-level HWND.
+    if (auto *fn = reinterpret_cast<BOOL(WINAPI *)(HWND, UINT, DWORD, void *)>(
+            ::GetProcAddress(::GetModuleHandleW(L"user32.dll"),
+                             "ChangeWindowMessageFilterEx"))) {
+        const HWND hwnd = reinterpret_cast<HWND>(winId());
+        constexpr DWORD kAllow = 1; // MSGFLT_ALLOW
+        fn(hwnd, 0x0233, kAllow, nullptr); // WM_DROPFILES
+        fn(hwnd, 0x004A, kAllow, nullptr); // WM_COPYDATA
+        fn(hwnd, 0x0049, kAllow, nullptr); // WM_COPYGLOBALDATA (undocumented)
+    }
 #endif
 }
 

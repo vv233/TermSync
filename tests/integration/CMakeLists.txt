@@ -93,6 +93,15 @@ target_link_libraries(remove_dir_smoke
         Qt6::Core
 )
 
+add_executable(sudo_upload_smoke
+    sudo_upload_smoke.cpp
+)
+target_link_libraries(sudo_upload_smoke
+    PRIVATE
+        termsync_transfer
+        Qt6::Core
+)
+
 add_executable(credential_smoke
     credential_smoke.cpp
 )

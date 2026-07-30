@@ -447,10 +447,25 @@ public slots:
                                             &m_cancelFlag);
         } else {
             if (m_sudo) {
-                sudoRefresh();
-                ok = m_engine->runCommandFromFile(
-                    QStringLiteral("sudo -n cp /dev/stdin %1").arg(shQuote(item.remotePath)),
-                    item.localPath, progress, &m_cancelFlag);
+                // `sudo -n` relies on a credential cache that does NOT carry
+                // across separate SSH exec channels, so a direct sudo upload
+                // failed. Instead: upload to a user-writable temp via normal
+                // SFTP, then self-authenticating `sudo cp` it into place (owned
+                // by root), and remove the temp.
+                const QString tmp =
+                    QStringLiteral("/tmp/.termsync-sudo-%1")
+                        .arg(QRandomGenerator::global()->generate(), 8, 16,
+                             QLatin1Char('0'));
+                ok = m_engine->uploadFile(item.localPath, tmp, progress,
+                                          &m_cancelFlag);
+                if (ok) {
+                    int ec = 0;
+                    ok = runSudo(QStringLiteral("cp %1 %2").arg(shQuote(tmp),
+                                                               shQuote(item.remotePath)),
+                                 nullptr, &ec) &&
+                         ec == 0;
+                    m_engine->removeFile(tmp); // best-effort cleanup (user owns it)
+                }
             } else {
                 ok = m_engine->uploadFile(item.localPath, item.remotePath, progress,
                                           &m_cancelFlag);
