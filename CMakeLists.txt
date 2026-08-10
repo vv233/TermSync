@@ -5,7 +5,7 @@ project(TermSync
     DESCRIPTION "Open-source SSH terminal + SFTP/FTP client"
     LANGUAGES CXX)
 
-set(TERMSYNC_PRERELEASE_LABEL "pre.8" CACHE STRING "Pre-release label")
+set(TERMSYNC_PRERELEASE_LABEL "pre.9" CACHE STRING "Pre-release label")
 set(TERMSYNC_VERSION "${PROJECT_VERSION}-${TERMSYNC_PRERELEASE_LABEL}")
 file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/termsync-version.txt"
     CONTENT "${TERMSYNC_VERSION}\n")
