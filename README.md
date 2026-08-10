@@ -10,7 +10,7 @@ TermSync is an open-source, cross-platform remote operations client built with
 C++17 and Qt 6. It combines tabbed terminal sessions, connection profiles,
 file transfer, synchronization, automation, and a headless CLI in one project.
 
-> **Pre-release:** `0.1.0-pre.9` is intended for validation. Configuration and
+> **Pre-release:** `0.1.0-pre.10` is intended for validation. Configuration and
 > behavior may still change before the first stable release. See
 > [known limitations](docs/known-limitations.md) for current rough edges.
 
