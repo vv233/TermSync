@@ -102,6 +102,14 @@ target_link_libraries(sudo_upload_smoke
         Qt6::Core
 )
 
+add_executable(drop_probe WIN32
+    drop_probe.cpp
+)
+target_link_libraries(drop_probe
+    PRIVATE
+        Qt6::Widgets
+)
+
 add_executable(credential_smoke
     credential_smoke.cpp
 )
