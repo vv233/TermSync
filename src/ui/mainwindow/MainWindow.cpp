@@ -19,6 +19,7 @@
 #include <QPrinter>
 #include <QSettings>
 #include <QShowEvent>
+#include <QTimer>
 #include <QSignalBlocker>
 #include <QTextDocument>
 #include <QUrl>
@@ -121,10 +122,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     // After the first tab exists, so the QTabWidget lays the corner widget out.
     createWindowControls();
-
-#ifdef _WIN32
-    applyDarkTitleBar(this);
-#endif
+    // NOTE: do NOT call applyDarkTitleBar()/winId() here. Realizing the native
+    // window during construction makes Qt skip registering the OLE drop target,
+    // which silently kills real Explorer drag-drop. The dark title bar is applied
+    // in showEvent() instead, after the window is created the normal way.
 }
 
 MainWindow::~MainWindow() = default;
@@ -133,24 +134,28 @@ void MainWindow::showEvent(QShowEvent *event)
 {
     QMainWindow::showEvent(event);
 #ifdef _WIN32
-    // Reapply on first show so the title bar is dark from the very first paint,
-    // and force a frame recompute so WM_NCCALCSIZE strips the native caption.
-    applyDarkTitleBar(this);
     updateMaximizeIcon();
-
-    // Allow drag-and-drop from (lower-integrity) Explorer when TermSync runs
-    // elevated. Windows UIPI otherwise silently blocks the drop messages, so
-    // dragging files onto the SFTP browser does nothing. Harmless when not
-    // elevated. Must target the top-level HWND.
-    if (auto *fn = reinterpret_cast<BOOL(WINAPI *)(HWND, UINT, DWORD, void *)>(
-            ::GetProcAddress(::GetModuleHandleW(L"user32.dll"),
-                             "ChangeWindowMessageFilterEx"))) {
-        const HWND hwnd = reinterpret_cast<HWND>(winId());
-        constexpr DWORD kAllow = 1; // MSGFLT_ALLOW
-        fn(hwnd, 0x0233, kAllow, nullptr); // WM_DROPFILES
-        fn(hwnd, 0x004A, kAllow, nullptr); // WM_COPYDATA
-        fn(hwnd, 0x0049, kAllow, nullptr); // WM_COPYGLOBALDATA (undocumented)
-    }
+    // Apply the dark title bar and drop-related message filters AFTER the window
+    // is fully realized and Qt has registered the OLE drop target — calling
+    // winId() earlier prevents that registration, which silently kills real
+    // Explorer drag-drop. Deferred to the event loop so it runs post-show.
+    QTimer::singleShot(0, this, [this] {
+        applyDarkTitleBar(this);
+        // Allow drop messages from lower-integrity Explorer when running elevated
+        // (Windows UIPI would otherwise block them). Harmless when not elevated.
+        if (auto *fn = reinterpret_cast<BOOL(WINAPI *)(HWND, UINT, DWORD, void *)>(
+                ::GetProcAddress(::GetModuleHandleW(L"user32.dll"),
+                                 "ChangeWindowMessageFilterEx"))) {
+            const HWND hwnd = reinterpret_cast<HWND>(winId());
+            constexpr DWORD kAllow = 1; // MSGFLT_ALLOW
+            fn(hwnd, 0x0233, kAllow, nullptr); // WM_DROPFILES
+            fn(hwnd, 0x004A, kAllow, nullptr); // WM_COPYDATA
+            fn(hwnd, 0x0049, kAllow, nullptr); // WM_COPYGLOBALDATA
+        }
+        // Re-assert the drop target after the winId() calls above.
+        setAcceptDrops(false);
+        setAcceptDrops(true);
+    });
 #endif
 }
 
