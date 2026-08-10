@@ -1183,6 +1183,11 @@ void ExplorerSftpBrowser::uploadUrls(const QList<QUrl> &urls)
         emit statusMessage(tr("Uploading %n item(s) to %1", "", n).arg(m_path));
 }
 
+void ExplorerSftpBrowser::uploadDroppedUrls(const QList<QUrl> &urls)
+{
+    uploadUrls(urls);
+}
+
 void ExplorerSftpBrowser::uploadLocalEntry(const QString &localPath,
                                            const QString &remoteDir)
 {

@@ -40,6 +40,12 @@ public:
 protected:
     void showEvent(QShowEvent *event) override;
     void changeEvent(QEvent *event) override;
+    // Window-level file-drop upload: MainWindow accepts drops (guaranteeing the
+    // top-level OLE drop site is registered on Windows) and forwards local-file
+    // drops to the current SFTP browser tab.
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 #ifdef _WIN32
     // Custom window frame: removes the native caption so the tab strip becomes
     // the title bar (Termius-style), while keeping native resize / snap / shadow.

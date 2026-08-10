@@ -2,8 +2,10 @@
 
 #include <QHash>
 #include <QIcon>
+#include <QList>
 #include <QSet>
 #include <QStringList>
+#include <QUrl>
 #include <QWidget>
 
 #include "model/ConnectionProfile.h"
@@ -43,6 +45,9 @@ public:
 
     // The shared SFTP backend, so a global transfer panel can watch its signals.
     transfer::SftpSession *session() const { return m_session; }
+
+    // Upload files dropped anywhere on the window (forwarded by MainWindow).
+    void uploadDroppedUrls(const QList<QUrl> &urls);
 
 signals:
     void statusMessage(const QString &message);

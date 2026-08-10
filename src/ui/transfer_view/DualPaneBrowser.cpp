@@ -466,6 +466,16 @@ void DualPaneBrowser::uploadSelected()
     uploadPaths(files);
 }
 
+void DualPaneBrowser::uploadDroppedUrls(const QList<QUrl> &urls)
+{
+    QStringList paths;
+    for (const QUrl &u : urls)
+        if (u.isLocalFile())
+            paths << u.toLocalFile();
+    if (!paths.isEmpty())
+        uploadPaths(paths);
+}
+
 void DualPaneBrowser::uploadPaths(const QStringList &files)
 {
     int n = 0;

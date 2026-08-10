@@ -21,6 +21,7 @@
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QTextDocument>
+#include <QUrl>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTabBar>
@@ -41,8 +42,12 @@
 #  include <dwmapi.h>
 #endif
 
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QEvent>
 #include <QHBoxLayout>
+#include <QMimeData>
 #include <QResizeEvent>
 #include <QSizePolicy>
 #include <QWindow>
@@ -97,6 +102,9 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setWindowTitle(tr("TermSync"));
     resize(1100, 720);
+    // Register the top-level window as an OLE drop target so real Explorer drags
+    // reach us; file drops are forwarded to the current SFTP browser.
+    setAcceptDrops(true);
 
     createCentralArea();
     createToolBar();
@@ -144,6 +152,52 @@ void MainWindow::showEvent(QShowEvent *event)
         fn(hwnd, 0x0049, kAllow, nullptr); // WM_COPYGLOBALDATA (undocumented)
     }
 #endif
+}
+
+// --- Window-level drag-in upload -------------------------------------------
+namespace {
+bool dropHasLocalFiles(const QMimeData *m)
+{
+    if (!m || !m->hasUrls())
+        return false;
+    for (const QUrl &u : m->urls())
+        if (u.isLocalFile())
+            return true;
+    return false;
+}
+} // namespace
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    // Accept only when the current tab is an SFTP browser that can receive files.
+    QWidget *cur = m_sessionTabs ? m_sessionTabs->currentWidget() : nullptr;
+    const bool isBrowser = qobject_cast<ExplorerSftpBrowser *>(cur) ||
+                           qobject_cast<DualPaneBrowser *>(cur);
+    if (isBrowser && dropHasLocalFiles(event->mimeData()))
+        event->acceptProposedAction();
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent *event)
+{
+    QWidget *cur = m_sessionTabs ? m_sessionTabs->currentWidget() : nullptr;
+    const bool isBrowser = qobject_cast<ExplorerSftpBrowser *>(cur) ||
+                           qobject_cast<DualPaneBrowser *>(cur);
+    if (isBrowser && dropHasLocalFiles(event->mimeData()))
+        event->acceptProposedAction();
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    if (!dropHasLocalFiles(event->mimeData()))
+        return;
+    QWidget *cur = m_sessionTabs ? m_sessionTabs->currentWidget() : nullptr;
+    if (auto *ex = qobject_cast<ExplorerSftpBrowser *>(cur)) {
+        ex->uploadDroppedUrls(event->mimeData()->urls());
+        event->acceptProposedAction();
+    } else if (auto *dp = qobject_cast<DualPaneBrowser *>(cur)) {
+        dp->uploadDroppedUrls(event->mimeData()->urls());
+        event->acceptProposedAction();
+    }
 }
 
 #ifdef _WIN32
